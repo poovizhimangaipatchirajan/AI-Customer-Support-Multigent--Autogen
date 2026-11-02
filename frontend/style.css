@@ -1,0 +1,51 @@
+:root {--navy:#102342;--blue:#1769f5;--muted:#6b7890;--line:#e3eaf5}
+.stApp {background:#f5f8fd;color:#172b4d}
+.block-container {max-width:1350px;padding-top:1.2rem;padding-bottom:3rem}
+h1,h2,h3 {color:#12264a;letter-spacing:-.025em}
+[data-testid="stSidebar"] {background:linear-gradient(180deg,#0d2345,#102c54)}
+[data-testid="stSidebar"] * {color:#f2f7ff!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button {background:transparent;border:0;text-align:left;justify-content:flex-start;border-radius:8px;color:#f3f7ff!important;min-height:42px}
+[data-testid="stSidebar"] [data-testid="stButton"] button[kind="primary"] {background:#1769f5!important;color:white!important}
+[data-testid="stSidebar"] [data-testid="stButton"] button:hover {background:#244a7d}
+.ff-sidebar-logo{font-size:1.35rem;font-weight:800;letter-spacing:-.035em;padding-top:1rem}
+.ff-sidebar-caption{color:#a8bddb!important;font-size:.75rem;margin-bottom:1rem}
+.ff-dev-notice{padding:9px 14px;background:#fff8e6;color:#916000;font-size:.79rem;border:1px solid #ffebbd;border-radius:8px;margin-bottom:18px}
+.ff-page-title{font-size:1.6rem;font-weight:800;letter-spacing:-.04em;color:#12264a;margin-bottom:2px}
+.ff-subtitle{color:#6b7890;font-size:.89rem;margin:0 0 19px}
+.ff-welcome{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(105deg,#dcecff,#eaf4ff 65%,#c9dfff);padding:25px 30px;border-radius:14px;margin-bottom:20px;min-height:140px;border:1px solid #d5e6ff}
+.ff-welcome-heading{font-size:1.6rem;font-weight:800;color:#0b3c94}
+.ff-welcome p{font-size:.9rem;color:#42648d;max-width:450px}
+.ff-welcome-emoji{font-size:3.7rem;white-space:nowrap}
+.ff-metric{background:white;border:1px solid var(--line);border-radius:13px;padding:17px 13px;min-height:100px;display:flex;align-items:center;gap:14px;box-shadow:0 3px 12px #163c7110}
+.ff-metric-icon{border-radius:10px;padding:10px;font-size:1.35rem;background:#e9f1ff;color:#1769f5}
+.ff-metric-icon.ff-green{background:#e3f8ed;color:#15975d}
+.ff-metric-icon.ff-amber{background:#fff1db;color:#c47a05}
+.ff-metric-icon.ff-red{background:#ffe9e9;color:#d84545}
+.ff-metric-label{font-size:.76rem;color:#64758d}
+.ff-metric-number{font-size:1.7rem;font-weight:800;color:#132a51;line-height:1.25}
+.ff-pill{display:inline-block;border-radius:6px;padding:5px 10px;font-size:.73rem;font-weight:800;white-space:nowrap}
+.ff-pill.ff-green{background:#dcf8e7;color:#11794c}
+.ff-pill.ff-blue{background:#dcecff;color:#1559bf}
+.ff-pill.ff-amber{background:#fff0cc;color:#956200}
+.ff-pill.ff-red{background:#ffe1e3;color:#b72c3b}
+.ff-steps{background:#eaf1ff;border-radius:10px;padding:15px;color:#1557b3;font-size:.86rem;font-weight:650;margin:10px 0 22px}
+.ff-panel{padding:20px;border:1px solid var(--line);border-radius:12px;background:white;margin-bottom:15px}
+.ff-muted{color:var(--muted);font-size:.85rem}
+.ff-login-hero{background:linear-gradient(135deg,#e9f3ff,#f8fbff);border:1px solid #dbe9fb;border-radius:18px;padding:42px 34px;min-height:540px}
+.ff-login-logo{font-size:1.8rem;font-weight:850;color:#073b91}
+.ff-login-small{font-size:.8rem;color:#476a9a;margin-top:3px}
+.ff-login-hero h1{font-size:2.2rem;line-height:1.2;margin:35px 0 30px;color:#073b91}
+.ff-login-hero p{font-size:.92rem;color:#2b547f}
+.ff-hero-decoration{font-size:3.3rem;margin-top:38px;text-align:center}
+.ff-login-heading{font-size:1.5rem;font-weight:800;margin:35px 0 5px;color:#142d52}
+[data-testid="stForm"]{background:white;border:1px solid var(--line);border-radius:13px;padding:18px 22px}
+[data-testid="stChatMessage"]{background:white;border:1px solid var(--line);border-radius:12px;margin-bottom:10px}
+button[kind="primary"],button[kind="primaryFormSubmit"]{background:#1769f5!important;border-radius:8px!important;color:white!important}
+button{border-radius:8px!important}
+[data-testid="stTabs"] [data-baseweb="tab"]{font-weight:650}
+@media(max-width:850px){.ff-welcome{padding:16px}.ff-welcome-emoji{font-size:2rem}.ff-login-hero{min-height:0;padding:20px}.ff-login-hero h1{font-size:1.6rem}}
+
+/* Self-service Help Center */
+.ff-help-hero {background:linear-gradient(110deg,#e7f1ff,#f8fbff);border:1px solid #dce8fc;border-radius:15px;padding:20px 24px;margin:12px 0 20px;color:#10244a}
+.ff-help-hero h3 {margin:0 0 8px;font-size:1.3rem;color:#10244a}
+.ff-help-hero p {margin:0;color:#4c6286;line-height:1.55}

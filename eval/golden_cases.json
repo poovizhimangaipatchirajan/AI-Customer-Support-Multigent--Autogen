@@ -1,0 +1,182 @@
+[
+  {
+    "id": "shipping_fbn",
+    "question": "What does Fulfilled by NovaCart mean?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "fulfillment centers"
+  },
+  {
+    "id": "shipping_dmf",
+    "question": "How quickly must direct merchants generate dispatch manifests?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "48 business hours"
+  },
+  {
+    "id": "returns_fashion",
+    "question": "What is the return window for fashion and apparel?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "14 Days"
+  },
+  {
+    "id": "returns_electronics",
+    "question": "What is the return window for consumer electronics?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "7 Days"
+  },
+  {
+    "id": "returns_beauty",
+    "question": "Are unsealed personal care products returnable?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "Non-Returnable"
+  },
+  {
+    "id": "warranty_platform",
+    "question": "How long is the NovaCart platform assurance?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "30-Day"
+  },
+  {
+    "id": "warranty_extended",
+    "question": "What is the maximum NovaCare extended protection duration?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "36 months"
+  },
+  {
+    "id": "account_high_risk",
+    "question": "What verification is required for password resets?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "OTP"
+  },
+  {
+    "id": "account_card",
+    "question": "Can support agents request full card numbers or CVV?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "CVV"
+  },
+  {
+    "id": "payments_upi",
+    "question": "Which payment rails include UPI and Net Banking?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "UPI"
+  },
+  {
+    "id": "payments_decline",
+    "question": "What does CARD_DECLINED_05 indicate?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "Transaction Declined"
+  },
+  {
+    "id": "payments_3ds",
+    "question": "What should customers do when 3D Secure times out?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "browser cache"
+  },
+  {
+    "id": "01_shipping_label",
+    "question": "What does the NovaCart shipping and delivery policy say about shipping label?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "Shipping label"
+  },
+  {
+    "id": "01_delivery",
+    "question": "What does the NovaCart shipping and delivery policy say about delivery?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "Delivery"
+  },
+  {
+    "id": "01_tracking",
+    "question": "What does the NovaCart shipping and delivery policy say about tracking?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "tracking"
+  },
+  {
+    "id": "01_dispatch",
+    "question": "What does the NovaCart shipping and delivery policy say about dispatch?",
+    "expected_source": "01_Shipping_and_Delivery_SOP.pdf",
+    "evidence_phrase": "dispatch"
+  },
+  {
+    "id": "02_return",
+    "question": "What does the NovaCart returns and refunds policy say about return?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "return"
+  },
+  {
+    "id": "02_refund",
+    "question": "What does the NovaCart returns and refunds policy say about refund?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "Refund"
+  },
+  {
+    "id": "02_apparel",
+    "question": "What does the NovaCart returns and refunds policy say about apparel?",
+    "expected_source": "02_Returns_and_Refunds_SOP.pdf",
+    "evidence_phrase": "Apparel"
+  },
+  {
+    "id": "03_warranty",
+    "question": "What does the NovaCart product and warranty policy say about warranty?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "Warranty"
+  },
+  {
+    "id": "03_replacement",
+    "question": "What does the NovaCart product and warranty policy say about replacement?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "Replacement"
+  },
+  {
+    "id": "03_product",
+    "question": "What does the NovaCart product and warranty policy say about product?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "Product"
+  },
+  {
+    "id": "03_assurance",
+    "question": "What does the NovaCart product and warranty policy say about assurance?",
+    "expected_source": "03_Product_and_Warranty_SOP.pdf",
+    "evidence_phrase": "Assurance"
+  },
+  {
+    "id": "04_password",
+    "question": "What does the NovaCart account and login policy say about password?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "Password"
+  },
+  {
+    "id": "04_account",
+    "question": "What does the NovaCart account and login policy say about account?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "Account"
+  },
+  {
+    "id": "04_login",
+    "question": "What does the NovaCart account and login policy say about login?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "Login"
+  },
+  {
+    "id": "04_verification",
+    "question": "What does the NovaCart account and login policy say about verification?",
+    "expected_source": "04_Account_and_Login_SOP.pdf",
+    "evidence_phrase": "Verification"
+  },
+  {
+    "id": "05_payment",
+    "question": "What does the NovaCart payments and billing policy say about payment?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "Payment"
+  },
+  {
+    "id": "05_billing",
+    "question": "What does the NovaCart payments and billing policy say about billing?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "Billing"
+  },
+  {
+    "id": "05_transaction",
+    "question": "What does the NovaCart payments and billing policy say about transaction?",
+    "expected_source": "05_Payments_and_Billing_SOP.pdf",
+    "evidence_phrase": "Transaction"
+  }
+]

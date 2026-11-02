@@ -1,0 +1,54 @@
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+!.env.sample
+.streamlit/secrets.toml
+*.pem
+*.key
+
+# Python environments, caches, and tooling
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+
+# Local databases, customer evidence, and runtime files
+*.sqlite3
+*.sqlite3-*
+*.db
+*.db-*
+**/private_evidence/
+local_mailbox.txt
+*.log
+
+# Generated retrieval indexes and backups
+local_index/
+local_index_backup*/
+faiss_index/
+chroma/
+chromadb/
+*.faiss
+
+# Local diagnostics and generated evaluation outputs
+dependencies_before_repair.txt
+phase10_acceptance_report.json
+phase8d_refund_inventory.txt
+phase8d_test_inventory.txt
+release_audit/*.txt
+eval/five_issue_offline_report.json
+eval/phase8c_live*.json
+eval/phase8c_part2_audit.json
+
+# Historical development backups
+backend/db/store_phase8d_backup.py
+backend/main_phase8d_backup.py
+backend/main.py.phase8e.bak
+frontend/assests/
+
+private_evidence/
+pytest_collection.txt

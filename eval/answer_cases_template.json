@@ -1,0 +1,19 @@
+[
+  {
+    "id": "help-center-real-case-01",
+    "path": "help_center",
+    "question": "Replace with the actual question asked",
+    "draft": "Replace with the actual response returned",
+    "cited_ids": ["replace-with-real-chunk-id"],
+    "evidence": {
+      "replace-with-real-chunk-id": {
+        "id": "replace-with-real-chunk-id",
+        "visibility": "customer",
+        "source": "replace-with-actual-policy-file",
+        "text": "Paste the retrieved passage exactly"
+      }
+    },
+    "published": false,
+    "expected_review": false
+  }
+]
