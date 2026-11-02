@@ -16,7 +16,7 @@ from backend.db.store import init, connect, audit
 from backend.rag.hybrid import HybridRetriever, INTERNAL_ONLY
 from backend.agents.team import make_team
 from backend.services.grounding_guard import check_response_grounding, check_customer_visibility
-from backend.services_rubric_logging import migrate as migrate_rubric, record_agent_events
+from backend.services_rubric_logging import migrate as migrate_rubric, record_agent_events, record_agent_outputs
 
 LEASE_SECONDS = 180
 
@@ -501,6 +501,7 @@ async def process(row, retriever):
             )
 
         record_agent_events(row, result.messages)
+        record_agent_outputs(row, result.messages)
         success = bool(saved) and acknowledged
 
         finish(row, success)

@@ -449,12 +449,12 @@ def evidence_section(ticket_id: str, *, admin: bool = False, resolved: bool = Fa
 def ticket_detail(admin=False):
     tid = st.session_state.ticket_id
     if not tid:
-        go("Escalations" if admin else "My tickets")
+        go("Tickets" if admin else "My tickets")
     data = api("GET", f"/tickets/{tid}")
     if not data:
         return
     if st.button("← Back to tickets"):
-        go("Escalations" if admin else "My tickets")
+        go("Tickets" if admin else "My tickets")
     processing_status(data)
     refund_decision_summary(tid)
     evidence_section(tid, admin=admin, resolved=data.get("status") == "RESOLVED")
@@ -520,6 +520,16 @@ def ticket_detail(admin=False):
                     )
                 else:
                     st.info("No recorded agent activity for this ticket. Historical jobs are not backfilled.")
+            st.markdown("**Agent execution outputs (admin-only)**")
+            st.caption("Agent-authored text captured after processing. Not internal reasoning or tool payloads. "
+                       "Only new jobs processed after this update have output records; refresh to see results.")
+            outputs = api("GET", f"/admin/rubric/agent-outputs/{tid}")
+            if outputs:
+                for item in outputs:
+                    with st.expander(f"{item.get('agent', 'Agent')} · Job {str(item.get('job_id', ''))[:8]}"):
+                        st.text(item.get('output') or '(No text output)')
+            elif outputs is not None:
+                st.info("No captured agent outputs for this ticket. Historical runs are not backfilled.")
             if st.button("Load audit history"):
                 events = api("GET", f"/admin/audit/{tid}")
                 if events is not None:
@@ -686,16 +696,68 @@ def refund_reviews_page():
                 st.caption(f"Execution status: {item['execution_status']} — no payment executed")
 
 
-def admin_dashboard(queue):
-    title("Admin dashboard", "NovaCart support operations · Human approval workspace")
-    a, b, c = st.columns(3)
-    with a: metric_card("Pending review", len(queue), "⚑", "red")
-    with b: metric_card("AI drafts", sum(1 for x in queue if x.get("status") == "ESCALATED"), "▤", "amber")
-    with c: metric_card("High-value requests", sum(float(x.get("claimed_amount") or 0) >= 500 for x in queue), "₹", "blue")
-    st.write("")
-    title("Escalated tickets")
-    ticket_list(queue, admin=True)
+def admin_dashboard(queue, tickets, complaint_rows):
+    """Overview of the authenticated admin ticket listing, plus review queue."""
+    from collections import Counter
 
+    title("Admin dashboard", "NovaCart support operations · Human approval workspace")
+    statuses = Counter(str(t.get("status") or "UNKNOWN").upper() for t in tickets)
+    answered = statuses["ANSWERED"]
+    resolved = statuses["RESOLVED"]
+    escalated = statuses["ESCALATED"]
+    pending = sum(v for k, v in statuses.items() if k in {"OPEN", "PENDING", "QUEUED", "PROCESSING"})
+    first = st.columns(5)
+    for col, label, value, symbol, tone in zip(
+        first,
+        ("Total tickets", "AI answered", "Escalated", "Resolved", "Pending"),
+        (len(tickets), answered, escalated, resolved, pending),
+        ("▤", "✦", "⚑", "✓", "◷"),
+        ("blue", "blue", "red", "blue", "amber"),
+    ):
+        with col:
+            metric_card(label, value, symbol, tone)
+
+    st.markdown("#### Ticket status overview")
+    if tickets:
+        status_rows = [{"Status": status, "Tickets": count}
+                       for status, count in sorted(statuses.items())]
+        st.dataframe(status_rows, use_container_width=True, hide_index=True)
+        st.markdown("#### Tickets by category")
+        # The authenticated complaint-log endpoint supplies the same category
+        # displayed in the rubric CSV. Match by public ticket ID, never by subject.
+        classifications = {
+            str(row.get("ticket_id") or "").strip(): (
+                str(row.get("category · urgency · sentiment") or "")
+                .split(" · ", 1)[0]
+                .strip()
+            )
+            for row in complaint_rows
+        }
+        categories = Counter(
+            classifications.get(public_id(t))
+            or "Not classified"
+            for t in tickets
+        )
+        st.dataframe(
+            [{"Category": name, "Tickets": count} for name, count in
+             sorted(categories.items(), key=lambda pair: (-pair[1], pair[0]))],
+            use_container_width=True, hide_index=True,
+        )
+        st.markdown("#### Recent tickets")
+        ticket_list(tickets[:5], admin=True)
+    else:
+        st.info("No tickets have been created in this database yet.")
+
+    st.markdown("#### Human review workspace")
+    a, b, c = st.columns(3)
+    with a:
+        metric_card("Pending review", len(queue), "⚑", "red")
+    with b:
+        metric_card("AI drafts", sum(1 for x in queue if x.get("status") == "ESCALATED"), "▤", "amber")
+    with c:
+        metric_card("High-value requests", sum(float(x.get("claimed_amount") or 0) >= 500 for x in queue), "₹", "blue")
+    st.markdown("#### Escalated tickets")
+    ticket_list(queue, admin=True)
 
 
 def help_center_page():
@@ -788,17 +850,32 @@ def main():
         ticket_detail(admin=admin)
         return
     if admin:
-        queue = api("GET", "/admin/queue")
-        if queue is None:
-            return
+        if page in ("Dashboard", "Home", "Escalations"):
+            queue = api("GET", "/admin/queue")
+            if queue is None:
+                return
         if page in ("Dashboard", "Home"):
-            admin_dashboard(queue)
+            all_tickets = api("GET", "/tickets")
+            if all_tickets is None:
+                return
+            complaint_rows = api("GET", "/admin/rubric/complaints")
+            if complaint_rows is None:
+                st.warning("Ticket classifications are temporarily unavailable.")
+                complaint_rows = []
+            admin_dashboard(queue, all_tickets, complaint_rows)
         elif page in ("Tickets", "Escalations"):
-            title("Escalations" if page == "Escalations" else "Support tickets", "Review requests requiring human attention.")
+            # Authenticated /tickets returns all tickets for admins.
+            # /admin/queue remains restricted to escalated tickets.
+            rows = api("GET", "/tickets") if page == "Tickets" else queue
+            if rows is None:
+                return
+            title("Escalations" if page == "Escalations" else "Support tickets",
+                  "Review requests requiring human attention." if page == "Escalations"
+                  else "Browse all tickets and inspect agent execution history.")
             term = st.text_input("Search by ticket ID or subject", placeholder="Search tickets")
-            ticket_list([t for t in queue if term.lower() in (public_id(t) + " " + t.get("subject", "")).lower()], admin=True)
-            if page == "Tickets":
-                st.caption("The existing admin API exposes the escalation queue, not a complete all-ticket listing.")
+            term = term.strip().casefold()
+            ticket_list([t for t in rows if term in
+                         (public_id(t) + " " + (t.get("subject") or "")).casefold()], admin=True)
         elif page == "Refund reviews":
             refund_reviews_page()
         elif page in ("Audit logs"):

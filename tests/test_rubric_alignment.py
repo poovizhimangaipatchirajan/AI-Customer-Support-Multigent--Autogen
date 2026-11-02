@@ -53,3 +53,27 @@ def test_customer_denied_export(isolated):
     with pytest.raises(HTTPException) as error:
         complaints_csv(user={'role':'customer'})
     assert error.value.status_code==403
+
+def test_agent_output_capture_admin_only_and_lease_guard(isolated):
+    from backend.services_rubric_logging import record_agent_outputs, agent_outputs
+    job = {'id':'j','ticket_id':'t','lease':'lease1','version':0}
+    record_agent_outputs(job, [SimpleNamespace(source='QueryAgent',content='Category: Shipping; password=secretvalue'),
+                               SimpleNamespace(source='KnowledgeAgent',content={'tool_call':'internal'}),
+                               SimpleNamespace(source='LogAgent',content='LOGGED')])
+    rows = agent_outputs('t', user={'role':'admin'})
+    assert [r['agent'] for r in rows] == ['QueryAgent','LogAgent']
+    assert 'secretvalue' not in rows[0]['output']
+    record_agent_outputs({'id':'j','ticket_id':'t','lease':'wrong','version':0},
+                         [SimpleNamespace(source='ResolutionAgent',content='should not appear')])
+    assert len(agent_outputs('t',user={'role':'admin'})) == 2
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc:
+        agent_outputs('t',user={'role':'customer'})
+    assert exc.value.status_code == 403
+
+
+def test_verified_order_in_complaint_export(isolated):
+    with store.connect() as c:
+        c.execute("INSERT INTO demo_orders(id,order_code,customer_id,placed_at,status,total_amount) VALUES ('o','DEMO-001','u','2026-01-01','SHIPPED',500)")
+        c.execute("INSERT INTO ticket_order_links(ticket_id,order_code,customer_id) VALUES ('t','DEMO-001','u')")
+    assert 'DEMO-001' in _rows()[0]['customer_name / order_id']
