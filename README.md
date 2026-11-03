@@ -145,29 +145,24 @@ For a fresh installation, build the policy index using the project's existing co
 
 ## Local test validation
 
-The following results were reported from the earlier RC1 local validation cycle (historical, not the latest full suite):
+### Latest full regression (reported 2026-11-03)
 
-| Validation | Result |
-| --- | --- |
-| Final non-browser regression | **247 passed, 4 warnings, 0 failures** (76.44 s) |
-| Browser end-to-end tests | **8 passed** (earlier validated run) |
-| Lease-hardening targeted tests | **12 passed** |
-| Final security-gate tests | **6 passed** |
-| Live AI/RAG, MCP, and Serper integration checks | Previously exercised successfully in targeted runs |
+Run the full project test suite from the repository root:
 
-The test counts **overlap** and should not be added together. The four warnings in the final regression were deprecation warnings.
-
-To rerun the final non-browser suite from the project root:
-
-```cmd
-python -m pytest -q -rs -rw -p no:playwright --ignore=tests/e2e/test_portal_ui.py --ignore=tests/e2e/test_customer_complaint_journey.py
+```powershell
+python -m pytest tests --tb=short
 ```
 
-For isolated browser E2E runs, use the separate test services and database (API port **8001**, UI port **8502**, database `fixflow_e2e_test.sqlite3`) rather than the normal local app. Set the corresponding test URLs before running browser tests.
+| Validation | Latest reported result |
+| --- | --- |
+| **Full pytest regression** | **581 passed, 14 skipped, 4 warnings, 0 failures** |
+| Live AI/RAG, MCP, and Serper integration | Previously exercised in targeted local checks; production availability is not implied |
 
-### Latest reported full regression (2026-11-03 handoff)
+The pytest figures are the latest results reported during local development; they were not rerun for this documentation change. Skipped tests are not counted as passes.
 
-The latest full-suite result supplied in the project conversation is **581 passed, 14 skipped, 4 warnings, 0 failures**. This supersedes the older 247-pass snapshot for the overall regression status; individual targeted runs below remain useful historical evidence. The excluded browser portal E2E test is not claimed as passing in this result. These figures are reported results, not tests rerun by this README update.
+### Earlier targeted validation (historical)
+
+Earlier local checks included lease-hardening (**12 passed**) and security-gate (**6 passed**) targeted runs, as well as a prior **247-pass** regression. These historical results may overlap with the latest full suite and should not be added to its totals.
 
 ## RC1 validation scope
 
@@ -177,12 +172,11 @@ The final security-gate checks covered:
 2. **Refund follow-up enforcement:** refund requests at the ₹500 boundary are routed for human approval, including follow-ups.
 3. **Process-restart durability:** persisted review state and worker recovery were exercised across separate Python processes.
 
-### Latest local test log (reported 2026-11-02)
+### Additional targeted test records
 
-- `python scripts/run_local_validation.py --e2e`: **327 backend/offline passed** and **8 browser E2E passed**; deprecation warnings only.
-- `python -m pytest -q tests/test_phase10_consolidated.py --tb=short`: **7 passed**, after `FIXFLOW_LOCAL_DEMO=0` was set in the command session.
-- `python -m pytest -q tests/test_resolved_evidence_upload.py --tb=short`: **1 passed**.
-- The test sets may overlap; these are user-supplied Windows logs, not tests rerun in this documentation update.
+- `python -m pytest -q tests/test_phase10_consolidated.py --tb=short`: **7 passed** in the earlier reported run with `FIXFLOW_LOCAL_DEMO=0`.
+- `python -m pytest -q tests/test_resolved_evidence_upload.py --tb=short`: **1 passed** in the earlier reported run.
+- These targeted counts may overlap with the full regression; they are historical records, not additional passes.
 
 ### Six mandatory demo cases
 
@@ -271,7 +265,6 @@ For human-review cases, screenshots do **not** imply a refund or replacement was
 | Streamlit starts with one command | [Start the frontend](#start-the-frontend): `python -m streamlit run frontend/app.py` from project root |
 | No API keys committed | `.env.example`, `.gitignore` review and pre-push secret scan |
 | README explains setup, execution, architecture, screenshots | This README and the screenshot gallery above |
-
 
 
 ### Private upload handling
