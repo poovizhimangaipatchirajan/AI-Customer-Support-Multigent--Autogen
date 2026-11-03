@@ -49,7 +49,7 @@ chromadb/
 # Browser/E2E test outputs
 playwright-report/
 test-results/
-screenshots/
+
 
 # Local diagnostics and generated evaluation outputs
 dependencies_before_repair.txt
