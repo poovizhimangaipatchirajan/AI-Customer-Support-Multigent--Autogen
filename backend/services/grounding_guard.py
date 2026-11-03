@@ -72,7 +72,7 @@ def _unsupported_category_return_window(clause, texts):
         r"\b(?:for\s+)?(fashion\s*(?:&|and)\s*apparel|consumer\s+electronics|"
         r"large\s+home\s+appliances)\b[^.!?;]*?"
         r"\b(?:within|in)\s+(\d+)\s+days?\b", clause, re.I)
-    if not claim or not re.search(r"\b(?:return|refund|replacement|exchange)s?\b", clause, re.I):
+    if not claim or not re.search(r"\b(?:returns?|returned|returning|refunds?|replacements?|exchanges?)\b", clause, re.I):
         return None
     category = claim.group(1).lower()
     if category.startswith('fashion'):
@@ -88,6 +88,127 @@ def _unsupported_category_return_window(clause, texts):
     return 'UNSUPPORTED_DELIVERY_TIME'
 
 
+# Narrow claim-to-evidence check for invoice/bill retrieval instructions.
+# Source validity alone does not establish that a dashboard feature exists.
+_INVOICE_TERM = re.compile(r"\b(?:invoices?|bills?|receipts?)\b", re.I)
+_INVOICE_RETRIEVAL = re.compile(
+    r"\b(?:download(?:able)?|view(?:ing)?|access|find|retrieve|"
+    r"available|orders?\s+(?:dashboard|page|section|history)|dashboard)\b", re.I
+)
+
+
+def unsupported_invoice_guidance(draft, passages):
+    """Reject unsupported invoice retrieval claims in customer-facing drafts.
+
+    This is a narrow heuristic, not a general semantic entailment check.
+    Evidence must contain an invoice/bill/receipt term and retrieval guidance
+    within the same passage; unrelated payment text cannot support the claim.
+    """
+    if not isinstance(draft, str):
+        return None
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", draft):
+        if not (_INVOICE_TERM.search(sentence) and
+                _INVOICE_RETRIEVAL.search(sentence)):
+            continue
+        # Do not treat a request to provide an invoice/order number as a
+        # claim that an invoice-download feature exists.
+        for passage in passages if isinstance(passages, (list, tuple)) else ():
+            if not isinstance(passage, dict):
+                continue
+            text = passage.get("text", "")
+            if isinstance(text, str) and _INVOICE_TERM.search(text) and _INVOICE_RETRIEVAL.search(text):
+                break
+        else:
+            return "UNSUPPORTED_INVOICE_GUIDANCE"
+    return None
+
+
+# Only explicit, category-specific return-window questions trigger this check.
+# These are recognition patterns, NOT hardcoded policy durations.
+_RETURN_WINDOW_CATEGORIES = (
+    (re.compile(r"\b(?:fashion(?:\s*(?:&|and)\s*apparel)?|apparel|clothing)\b", re.I),
+     re.compile(r"\bfashion\s*(?:&|and)\s*apparel\s*[:\-]?\s*(\d+)\s*days?\b", re.I)),
+    (re.compile(r"\b(?:consumer\s+electronics|electronics)\b", re.I),
+     re.compile(r"\bconsumer\s+electronics\s*[:\-]?\s*(\d+)\s*days?\b", re.I)),
+    (re.compile(r"\b(?:large\s+home\s+appliances|large\s+appliances)\b", re.I),
+     re.compile(r"\blarge\s+home\s+appliances\s*[:\-]?\s*(\d+)\s*days?\b", re.I)),
+)
+
+
+def missing_requested_return_window(draft, passages, customer_message):
+    """Reject an omitted explicitly requested category window, never invent one.
+
+    Recognizes the approved SOP's category/day table format. If a relevant
+    duration is absent or conflicting, require review rather than guessing.
+    This narrow check is not a general completeness/entailment verifier.
+    """
+    if not isinstance(customer_message, str) or not isinstance(draft, str):
+        return None
+    query = customer_message
+    if not re.search(r"\breturns?\b", query, re.I):
+        return None
+    if not re.search(
+        r"\b(?:window|period|deadline|how\s+(?:many|long)|within\s+how\s+many|"
+        r"days?|time\s+limit|timeframe|eligible\s+for\s+how\s+long)\b", query, re.I
+    ):
+        return None
+    requested = [evidence_pattern for query_pattern, evidence_pattern
+                 in _RETURN_WINDOW_CATEGORIES if query_pattern.search(query)]
+    if len(requested) != 1:
+        return None  # Ambiguous or multiple categories: do not infer one.
+    if not isinstance(passages, (list, tuple)):
+        return 'MISSING_RETURN_WINDOW_ANSWER'
+    windows = set()
+    # Approved excerpts express windows in prose ("Fashion and apparel have a
+    # 14-day return window"), whereas the source SOP also has a category/day
+    # table. Accept either evidence format, never a duration from another category.
+    category_query_pattern = next(
+        (query_pattern for query_pattern, evidence_pattern in _RETURN_WINDOW_CATEGORIES
+         if evidence_pattern is requested[0]), None
+    )
+    for passage in passages:
+        if not isinstance(passage, dict):
+            continue
+        if passage.get('source') != '02_Returns_and_Refunds_SOP.pdf':
+            continue
+        policy_text = passage.get('text', '')
+        if isinstance(policy_text, str):
+            windows.update(int(m.group(1)) for m in requested[0].finditer(policy_text))
+            # Curated approved-only excerpts: category precedes the duration,
+            # including "14-day return window" and "within 14 days" forms.
+            for sentence in re.split(r"(?<=[.!?])\s+|\n+", policy_text):
+                if not (category_query_pattern and category_query_pattern.search(sentence)
+                        and re.search(r"\breturns?\b", sentence, re.I)):
+                    continue
+                for match in re.finditer(
+                    r"\b(\d+)\s*[- ]\s*days?\b|\b(?:within|in)\s+(\d+)\s+days?\b",
+                    sentence, re.I,
+                ):
+                    windows.add(int(match.group(1) or match.group(2)))
+    if len(windows) != 1:
+        return 'MISSING_RETURN_WINDOW_ANSWER'
+    expected = next(iter(windows))
+    # Require an affirmative return-period statement, not an unrelated number,
+    # a refund-processing SLA, or a negated claim about the requested window.
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", draft):
+        if not re.search(r"\breturns?\b", sentence, re.I):
+            continue
+        if re.search(r"\b(?:not|no|unknown|unspecified|cannot|can't|don't|doesn't)\b", sentence, re.I):
+            continue
+        # Both "within 14 days" and "14-day return window" express an
+        # eligibility period. Require the return context and policy duration.
+        day_expression = (
+            re.search(r"\b" + str(expected) + r"\s*(?:calendar\s+)?days?\b", sentence, re.I)
+            or re.search(r"\b" + str(expected) + r"[ -]day\b", sentence, re.I)
+        )
+        if (day_expression
+                and re.search(r"\b(?:within|window|period|eligible|eligibility|allowed|accepted|"
+                              r"request|deadline|limit|can\s+return|may\s+return)\b", sentence, re.I)
+                and not re.search(r"\b(?:processed|processing|refunded|refund\s+issued)\b", sentence, re.I)):
+            return None
+    return 'MISSING_RETURN_WINDOW_ANSWER'
+
+
 def check_response_grounding(draft, passages, customer_message=None):
     """Reject obvious unsupported completed actions and numeric time claims.
 
@@ -96,6 +217,9 @@ def check_response_grounding(draft, passages, customer_message=None):
     """
     if not isinstance(draft, str) or not draft.strip():
         return 'EMPTY_DRAFT'
+    invoice_issue = unsupported_invoice_guidance(draft, passages)
+    if invoice_issue:
+        return invoice_issue
     texts = [p.get('text', '') for p in passages if isinstance(p, dict)]
     if not texts or any(not isinstance(t, str) or not t.strip() for t in texts):
         # Preserve legacy fixture behavior; do not interpret this as evidence.
@@ -128,6 +252,9 @@ def check_response_grounding(draft, passages, customer_message=None):
     from backend.services.quantitative_grounding import unsupported_quantitative_claim
     if unsupported_quantitative_claim(draft, texts, customer_message=customer_message):
         return 'UNSUPPORTED_QUANTITATIVE_POLICY_CLAIM'
+    completeness_issue = missing_requested_return_window(draft, passages, customer_message)
+    if completeness_issue:
+        return completeness_issue
 
     # Dispatch SLA != delivery ETA. Evaluate affirmative clauses only.
     for shipping_clause in re.split(r"[.!?\n;]+", draft):
@@ -161,11 +288,12 @@ def check_response_grounding(draft, passages, customer_message=None):
                 # eligibility window, not a promise to deliver in 7 days.
                 # Keep the category/window check above active for wrong values.
                 return_eligibility = (
-                    re.search(r"\b(?:return|replacement|refund|exchange)s?\b", clause, re.I)
+                    re.search(r"\b(?:returns?|returned|returning|replacements?|refunds?|exchanges?)\b", clause, re.I)
                     and (
                         re.search(r"\b(?:accepted|eligible|eligibility|request|requested|window|period)\b", clause, re.I)
                         or re.search(r"\b(?:allows?|permits?|accepts?)\s+returns?\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
                         or re.search(r"\breturns?\s+(?:are\s+)?(?:allowed|permitted)\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
+                        or re.search(r"\b(?:must|should|can|may)\s+be\s+returned\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
                     )
                     and not re.search(r"\b(?:delivered|arrive|arrives|ship|dispatch|processed|issued|completed)\s+(?:within|in|by)\b", clause, re.I)
                 )

@@ -1,3 +1,8 @@
+
+# ============================================================
+# FixFlow AI - Git Ignore Configuration
+# ============================================================
+
 # Credentials and local configuration
 .env
 .env.*
@@ -21,13 +26,14 @@ __pycache__/
 htmlcov/
 coverage.xml
 
-# Local databases, customer evidence, and runtime files
+# Local databases and runtime data
 *.sqlite
 *.sqlite-*
 *.sqlite3
 *.sqlite3-*
 *.db
 *.db-*
+/docker_data/
 **/private_evidence/
 local_mailbox.txt
 *.log
@@ -46,10 +52,9 @@ chroma/
 chromadb/
 *.faiss
 
-# Browser/E2E test outputs
+# Browser and E2E test outputs
 playwright-report/
 test-results/
-
 
 # Local diagnostics and generated evaluation outputs
 dependencies_before_repair.txt
@@ -60,6 +65,7 @@ release_audit/*.txt
 eval/five_issue_offline_report.json
 eval/phase8c_live*.json
 eval/phase8c_part2_audit.json
+pytest_collection.txt
 
 # Historical development backups
 backend/db/store_phase8d_backup.py
@@ -67,5 +73,25 @@ backend/main_phase8d_backup.py
 backend/main.py.phase8e.bak
 frontend/assests/
 
-private_evidence/
-pytest_collection.txt
+# Local runtime reports
+/reports/
+
+# ============================================================
+# Public Buildathon Evaluation Evidence
+# ============================================================
+
+# Allow evidence directory and its public subdirectories
+!evidence/
+!evidence/logs/
+!evidence/test-results/
+!evidence/screenshots/
+
+# Allow evidence documentation and captured results
+!evidence/README.md
+!evidence/logs/*.txt
+!evidence/test-results/*.txt
+!evidence/screenshots/*.png
+!evidence/screenshots/*.jpg
+!evidence/screenshots/*.jpeg
+
+# Private evidence remains excluded by the global rule above

@@ -20,3 +20,6 @@ python-multipart==0.0.33
 # Directly imported by backend/services/ticket_evidence.py;
 # previously installed transitively. Pin after local compatibility check.
 Pillow>=11,<13
+# Development and automated testing
+pytest==9.2.0
+pytest-asyncio==1.4.1

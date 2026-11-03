@@ -2,7 +2,7 @@
 
 FixFlow AI is a local-first customer-support application built with a **FastAPI backend**, **Streamlit frontend**, **AutoGen multi-agent workflow**, and **hybrid retrieval-augmented generation (RAG)**. It helps process customer complaints, retrieve policy evidence, draft grounded responses, and route sensitive cases to human administrators.
 
-> RC1 has passed its agreed local validation gates. This does **not** certify production security, live payment processing, or readiness to handle real customer data.
+> Local validation has passed the reported regression and targeted demo gates. This does **not** certify production security, live payment processing, or readiness to handle real customer data.
 
 ## Features
 
@@ -98,7 +98,10 @@ Requirements: a compatible Python environment, dependencies from `requirements.t
 ```cmd
 cd C:\Users\Admin\Desktop\nexora\fixflow-ai
 venv\Scripts\activate
-python -m pip install -r requirements.txt
+
+pip install -r backend/requirements.txt
+pip install -r frontend/requirements.txt
+
 ```
 
 Keep API keys and credentials in local environment configuration. **Never commit `.env`, SQLite databases, local mailbox contents, or credentials.** Refer to the project's environment template when available; do not copy real values into documentation.
@@ -114,6 +117,8 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
 
 ### Start the frontend
+
+The Streamlit entry point is **`frontend/app.py`**. A root-level `app.py` is **not** an architectural defect. From the repository root, use the tested project-relative command below; when inside `frontend/`, the equivalent entry-point form is `streamlit run app.py` (subject to the same environment and import configuration). No wrapper file is required.
 
 In terminal 2:
 
@@ -140,7 +145,7 @@ For a fresh installation, build the policy index using the project's existing co
 
 ## Local test validation
 
-The following results were reported from the RC1 local validation cycle:
+The following results were reported from the earlier RC1 local validation cycle (historical, not the latest full suite):
 
 | Validation | Result |
 | --- | --- |
@@ -159,6 +164,10 @@ python -m pytest -q -rs -rw -p no:playwright --ignore=tests/e2e/test_portal_ui.p
 ```
 
 For isolated browser E2E runs, use the separate test services and database (API port **8001**, UI port **8502**, database `fixflow_e2e_test.sqlite3`) rather than the normal local app. Set the corresponding test URLs before running browser tests.
+
+### Latest reported full regression (2026-11-03 handoff)
+
+The latest full-suite result supplied in the project conversation is **581 passed, 14 skipped, 4 warnings, 0 failures**. This supersedes the older 247-pass snapshot for the overall regression status; individual targeted runs below remain useful historical evidence. The excluded browser portal E2E test is not claimed as passing in this result. These figures are reported results, not tests rerun by this README update.
 
 ## RC1 validation scope
 
@@ -193,7 +202,7 @@ These reported outcomes describe the support response; **ANSWERED is not proof t
 1. **Refund without verified order ID:** the app must request verification or human review, and never execute a refund.
 2. **Damaged product without required photo evidence:** the app must request evidence or route to human review; never execute a refund.
 
-Capture screenshots of these cases and the three mandatory views using the instructions in `screenshots/README.md`. Add image references only after genuine captures exist.
+Use the screenshot inventory below for the available captures. The automated test outcomes and screenshots are distinct evidence; do not treat an image as proof of a scenario it does not visibly demonstrate.
 
 ### Four-Agent Workflow Verification
 
@@ -207,7 +216,63 @@ The following targeted tests passed:
 These tests provide evidence of workflow integration and authentic
 agent-event recording.
 
-See `screenshots/test_evidence/` for terminal screenshots.
+See `evidence/screenshots/` for the canonical screenshot inventory. Add any verified terminal test captures there rather than maintaining a second root-level screenshot directory.
+
+## Submission screenshot gallery
+
+Keep **one canonical screenshot directory**: `evidence/screenshots/`. The names below are transcribed from the screenshot-folder view shared in this conversation. Links assume `.png` extensions (verified for some files in the available project copy); confirm the exact filenames and extensions on your machine before committing. Images are evidence of the visible UI only, not independent proof of backend safety.
+
+| Area | Screenshot | What it illustrates |
+| --- | --- | --- |
+| Authentication and onboarding | [Registration customer.png](evidence/screenshots/Registration%20customer.png) | Customer registration |
+| Authentication and onboarding | [Verify Email.png](evidence/screenshots/Verify%20Email.png) | Email verification |
+| Customer portal | [Dashboard_Customer.png](evidence/screenshots/Dashboard_Customer.png) | Customer dashboard |
+| Customer portal | [My Tickets Section.png](evidence/screenshots/My%20Tickets%20Section.png) | My tickets |
+| Ticket lifecycle | [Ticket raised.png](evidence/screenshots/Ticket%20raised.png) | Ticket submission confirmation |
+| Customer support | [Helpcentre query.png](evidence/screenshots/Helpcentre%20query.png) | Help-centre query |
+| Returns and policies | [ReturnTicket.png](evidence/screenshots/ReturnTicket.png) | Return ticket |
+| Returns and policies | [ReturnWindow.png](evidence/screenshots/ReturnWindow.png) | Return-window policy answer |
+| Returns and policies | [fashionproduct_returnWindow.png](evidence/screenshots/fashionproduct_returnWindow.png) | Fashion return-window answer |
+| Grounded RAG | [policyreferences.png](evidence/screenshots/policyreferences.png) | Policy references and citations |
+| Customer support | [replacementquery.png](evidence/screenshots/replacementquery.png) | Replacement query |
+| Safety and escalation | [damaged Product_humanreview.png](evidence/screenshots/damaged%20Product_humanreview.png) | Damaged-product review case |
+| Safety and escalation | [WithoutEvidence Claim.png](evidence/screenshots/WithoutEvidence%20Claim.png) | Claim without supporting evidence |
+| Admin review | [Human Review.png](evidence/screenshots/Human%20Review.png) | Human-review screen |
+| Admin review | [humanReview.png](evidence/screenshots/humanReview.png) | Human-review details |
+| Admin review | [Resolve Option after reply.png](evidence/screenshots/Resolve%20Option%20after%20reply.png) | Admin resolution option |
+| Ticket lifecycle | [Resolved Ticket.png](evidence/screenshots/Resolved%20Ticket.png) | Resolved ticket |
+| Auditability | [Audit Log.png](evidence/screenshots/Audit%20Log.png) | Audit log |
+| Section 7 logging | [CSV File.png](evidence/screenshots/CSV%20File.png) | CSV complaint log |
+| Section 7 logging | [Download CSV.png](evidence/screenshots/Download%20CSV.png) | CSV export |
+| Validation reference | [SixTestcasesMentioned in Statement.png](evidence/screenshots/SixTestcasesMentioned%20in%20Statement.png) | Six required demo cases reference |
+
+### Recommended evidence walkthrough
+
+The README links above allow a reviewer to follow registration and verification, customer dashboard, ticket creation, grounded policy answers, human review, ticket resolution, audit logs, and CSV export. The **six mandatory test scenarios** are documented separately in the test table; the screenshot labeled `SixTestcasesMentioned in Statement` is a reference image, not six individual execution screenshots.
+
+For human-review cases, screenshots do **not** imply a refund or replacement was executed. The application deliberately does not execute real financial transactions.
+
+### Screenshot folder and Git hygiene
+
+- Do not maintain a second root-level `screenshots/` folder. Consolidate confirmed submission images into `evidence/screenshots/` after comparing duplicates; do not delete originals before checking them.
+- **Important:** the inspected `.gitignore` includes a `screenshots/` pattern, which can also ignore `evidence/screenshots/`. Before a future Git commit, check `git check-ignore -v evidence/screenshots/"Audit Log.png"` (adjust the filename to match a real image). If ignored, update the ignore rules deliberately or explicitly stage approved screenshots. No Git changes are performed by this README update.
+- Never include `.env`, SQLite databases, private customer uploads, `private_evidence/`, virtual environments, or API credentials in the submission.
+- Check screenshot contents for customer names, emails, order IDs, and other private information; redact or replace sensitive captures before publishing.
+
+### Buildathon submission checklist
+
+| Requirement | Documentation / evidence |
+| --- | --- |
+| Four AutoGen agents, each with a clear single responsibility | [Four-agent workflow](#four-agent-workflow) and backend agent implementation |
+| KnowledgeAgent uses documents and identifies sources | [Hybrid RAG and supporting services](#hybrid-rag-and-supporting-services) and policy-reference screenshots |
+| ResolutionAgent avoids unsupported policies | [Safety and refund rules](#safety-and-refund-rules), grounding checks and validation cases |
+| Every ticket logged with required Section 7 fields | SQLite persistence and CSV complaint-log screenshots; verify the actual exported CSV headers against the assignment |
+| Complicated cases marked Escalated with a reason | Human-review screenshots, ticket audit trail and escalation tests |
+| Streamlit starts with one command | [Start the frontend](#start-the-frontend): `python -m streamlit run frontend/app.py` from project root |
+| No API keys committed | `.env.example`, `.gitignore` review and pre-push secret scan |
+| README explains setup, execution, architecture, screenshots | This README and the screenshot gallery above |
+
+
 
 ### Private upload handling
 

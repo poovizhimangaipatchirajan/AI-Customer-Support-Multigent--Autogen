@@ -1,0 +1,8 @@
+﻿worker-1  | FixFlow worker ready
+worker-1  | Processing ticket 9795c2c6-c35c-497c-a01e-4a4ca58916f8
+worker-1  | CITATION_VALIDATION: MISSING_CITATIONS
+worker-1  | EVIDENCE_REJECTION: MISSING_CITATIONS
+worker-1  | AutoGen termination: Text 'LOGGED' mentioned
+worker-1  | AI result persisted: True
+worker-1  | LogAgent acknowledged: True
+worker-1  | Ticket 9795c2c6-c35c-497c-a01e-4a4ca58916f8: job=DONE, ticket=ESCALATED, stale=False, review=True

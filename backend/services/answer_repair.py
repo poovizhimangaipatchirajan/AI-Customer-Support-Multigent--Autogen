@@ -8,6 +8,14 @@ from backend.services.grounding_guard import check_response_grounding, check_cus
 
 _REPAIRABLE = frozenset({'UNSUPPORTED_DELIVERY_TIME'})
 _SPLIT = re.compile(r'(?<=[.!?])\s+|\n+')
+_RETURN_ELIGIBILITY = re.compile(
+    r'\b(?:return|returns|returned|returnable|exchange|exchanges|replacement|replacements)\b',
+    re.I,
+)
+_RETURN_DURATION = re.compile(
+    r'\b(?:\d+\s*[- ]\s*(?:day|days|week|weeks)|'
+    r'(?:within|in)\s+\d+\s+(?:days?|weeks?))\b', re.I
+)
 
 
 def repair_isolated_time_claim(draft, passages):
@@ -31,6 +39,11 @@ def repair_isolated_time_claim(draft, passages):
     for sentence in sentences:
         failure = check_response_grounding(sentence, passages)
         if failure == reason:
+            # A return eligibility period is not a delivery SLA. Even if an
+            # upstream checker misclassifies it, never delete the policy answer.
+            # Leave the original draft for final fail-closed validation.
+            if _RETURN_ELIGIBILITY.search(sentence) and _RETURN_DURATION.search(sentence):
+                return draft, None
             removed += 1
         elif failure is None:
             retained.append(sentence)

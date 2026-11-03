@@ -211,15 +211,9 @@ def persist(
                     for item in requested_ids):
                 rejection_reasons.append("NON_CUSTOMER_EVIDENCE")
 
-        # A valid citation is necessary but not sufficient for auto-publication.
-        if not rejection_reasons and not escalate:
-            grounding_reason = check_response_grounding(
-                draft, [safe_by_id[item] for item in approved_ids]
-            )
-            if grounding_reason:
-                rejection_reasons.append(grounding_reason)
-        # A multi-intent, non-escalated answer must cite each explicit policy
-        # domain. This is a provenance check, not semantic entailment.
+        # Use the latest visible customer message for both grounding and
+        # provenance validation. The original ticket is a fallback only.
+        customer_query = ""
         if not rejection_reasons and not escalate:
             latest = c.execute(
                 "SELECT content FROM messages WHERE ticket_id=? AND "
@@ -234,6 +228,18 @@ def persist(
                 ).fetchone()
                 customer_query = ((original["subject"] or "") + " " +
                                   (original["description"] or "")) if original else ""
+
+        # A valid citation is necessary but not sufficient for auto-publication.
+        if not rejection_reasons and not escalate:
+            grounding_reason = check_response_grounding(
+                draft, [safe_by_id[item] for item in approved_ids],
+                customer_message=customer_query,
+            )
+            if grounding_reason:
+                rejection_reasons.append(grounding_reason)
+
+        # A multi-intent answer must cite each explicit policy domain.
+        if not rejection_reasons and not escalate:
             if missing_citation_domains(customer_query, draft,
                                         [safe_by_id[i] for i in approved_ids]):
                 rejection_reasons.append("MISSING_DOMAIN_CITATION")
@@ -568,9 +574,22 @@ async def main():
     migrate_rubric()
     retriever = create_customer_retriever()
 
+    # A separate best-effort snapshot never changes the outcome of a ticket.
+    from backend.services.ticket_csv_sync import sync_csv
+    next_csv_sync = 0.0
+
     print("FixFlow worker ready", flush=True)
 
     while True:
+        # Reconcile all committed tickets periodically, including those created
+        # while the worker was stopped. Never fail the processing loop on CSV I/O.
+        now = time.monotonic()
+        if now >= next_csv_sync:
+            try:
+                sync_csv()
+            except Exception as exc:
+                print(f"Rubric CSV sync failed ({type(exc).__name__}); will retry", flush=True)
+            next_csv_sync = now + 15
         recover()
         row = claim()
 
