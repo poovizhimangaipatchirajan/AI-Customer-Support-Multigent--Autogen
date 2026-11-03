@@ -10,8 +10,10 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from backend.auth.security import principal
-from backend.rag.hybrid import HybridRetriever
+from backend.rag.customer_runtime import create_customer_retriever
 from backend.services.risk import screen
+from backend.rag.customer_policy import is_approved_customer_passage
+from backend.rag.customer_runtime import customer_mode
 
 router = APIRouter(prefix='/help', tags=['Help Center'])
 
@@ -61,7 +63,7 @@ class Question(BaseModel):
 
 @lru_cache(maxsize=1)
 def retriever():
-    return HybridRetriever()
+    return create_customer_retriever()
 
 
 def keywords(value):
@@ -264,6 +266,8 @@ def answer_question(question: str, search=None):
 
     search = search if search is not None else retriever()
     docs = search.search(q, k=4)
+    if customer_mode() == "approved_only":
+        docs = [doc for doc in docs if is_approved_customer_passage(doc)]
     allowed_sources = relevant_department_sources(q)
     qualified = _warranty_alternatives(q, docs)
     if qualified is not None:

@@ -1,4 +1,4 @@
-import os,uuid,time,re,secrets,csv,io,json,sqlite3,logging
+import uuid,time,re,secrets,csv,io,json,sqlite3,logging
 from fastapi import FastAPI,Depends,HTTPException,Header
 from pathlib import Path
 from dotenv import load_dotenv
@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel,Field
 from backend.db.store import init,connect,audit
 from backend.auth.security import hash_password,verify_password,create_session,principal,admin_only,digest,revoke
-from backend.auth.mailer import send_token, MailConfigurationError
+from backend.auth.mailer import send_token
 from backend.services.risk import screen, REFUND, AMOUNT, CURRENCY_CONTEXT, _money, refund_amount_from_text
 from backend.services.refund_approvals import router as refund_review_router, migrate as migrate_refund_reviews, register_pending
 from backend.services.help_center import router as help_router
@@ -199,7 +199,14 @@ def create_ticket(body:TicketIn,user=Depends(principal)):
  # Only use an unambiguous amount tied to the word 'refund'; never an order ID.
  parsed_amount = refund_amount_from_text(body.subject+' '+body.description)
  effective_amount = body.claimed_amount if body.claimed_amount is not None else (float(parsed_amount) if parsed_amount is not None else None)
- flags=screen(body.subject+' '+body.description,effective_amount);status='ESCALATED' if flags else 'QUEUED'
+ flags=screen(body.subject+' '+body.description,effective_amount)
+ # An explicitly requested refund >= ₹500 requires review even when
+ # conflicting amounts make the claim unverified. Never resolve conflicts here.
+ if (REFUND.search(body.subject+' '+body.description) or parsed_amount is not None):
+  amounts = [_money(effective_amount), parsed_amount]
+  if any(v is not None and v >= 500 for v in amounts):
+   flags = sorted(set(flags) | {'REFUND_GE_500'})
+ status='ESCALATED' if flags else 'QUEUED'
  with connect() as c:
   c.execute('INSERT INTO tickets(id,customer_id,subject,description,claimed_amount,status,risk,created_at) VALUES (?,?,?,?,?,?,?,?)',(tid,user['id'],body.subject,body.description,effective_amount,status,','.join(flags),now))
   if body.order_code:c.execute('INSERT INTO ticket_order_links(ticket_id,order_code,customer_id) VALUES (?,?,?)',(tid,body.order_code,user['id']))
@@ -292,6 +299,12 @@ def reply(ticket_id: str, body: ReplyIn, user=Depends(principal)):
                 flags.add('REFUND_AMOUNT_UNVERIFIED')
             if (REFUND.search(body.content) or refund_amount_from_text(body.content) is not None) and followup_amount is None and ticket['claimed_amount'] is None:
                 flags.add('REFUND_AMOUNT_UNVERIFIED')
+            # Threshold is inclusive. Preserve a high-value review even when
+            # the new claim conflicts with the original claimed amount.
+            if REFUND.search(body.content) or refund_amount_from_text(body.content) is not None:
+                candidate_amounts = (_money(ticket['claimed_amount']), followup_amount)
+                if any(v is not None and v >= 500 for v in candidate_amounts):
+                    flags.add('REFUND_GE_500')
             if 'REFUND_GE_500' in flags:
                 register_pending(c, ticket_id, screening_amount, flags)
             risk = set(filter(None, (ticket['risk'] or '').split(','))) | flags

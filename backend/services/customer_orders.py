@@ -1,6 +1,6 @@
 """Additive local-demo customer profile and order APIs. No real fulfillment or payment actions."""
 from __future__ import annotations
-import re, sqlite3, uuid
+import re, uuid
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from backend.db.store import connect

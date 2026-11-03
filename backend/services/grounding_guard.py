@@ -4,6 +4,7 @@ Not a semantic entailment verifier. Never interprets SOP text as authorization t
 perform refunds or other customer-account actions.
 """
 import re
+import os
 
 # Numeric timelines are high-impact commitments. Check both the duration and
 # its subject in a single cited passage, rather than matching an arbitrary
@@ -60,7 +61,34 @@ def _supported_time(match, sentence, texts):
     return False
 
 
-def check_response_grounding(draft, passages):
+def _unsupported_category_return_window(clause, texts):
+    """Validate category-specific return windows against the *same* category.
+
+    A 14-day Fashion window cannot support a 14-day Electronics claim.
+    Return None if no explicit category/window assertion is present; absence of
+    recognizable category evidence fails closed for such assertions.
+    """
+    claim = re.search(
+        r"\b(?:for\s+)?(fashion\s*(?:&|and)\s*apparel|consumer\s+electronics|"
+        r"large\s+home\s+appliances)\b[^.!?;]*?"
+        r"\b(?:within|in)\s+(\d+)\s+days?\b", clause, re.I)
+    if not claim or not re.search(r"\b(?:return|refund|replacement|exchange)s?\b", clause, re.I):
+        return None
+    category = claim.group(1).lower()
+    if category.startswith('fashion'):
+        category_pattern = r"fashion\s*(?:&|and)\s*apparel"
+    elif category.startswith('consumer'):
+        category_pattern = r"consumer\s+electronics"
+    else:
+        category_pattern = r"large\s+home\s+appliances"
+    for text in texts:
+        for match in re.finditer(category_pattern + r"\s+(\d+)\s+days?\b", text, re.I):
+            if match.group(1) == claim.group(2):
+                return None
+    return 'UNSUPPORTED_DELIVERY_TIME'
+
+
+def check_response_grounding(draft, passages, customer_message=None):
     """Reject obvious unsupported completed actions and numeric time claims.
 
     Passing this narrow guard does not certify semantic entailment; backend
@@ -94,19 +122,55 @@ def check_response_grounding(draft, passages):
         return 'UNAUTHORIZED_ACTION_PROMISE'
     if _false_threshold.search(draft):
         return 'MISSTATED_REFUND_THRESHOLD'
-    # Dispatch/manifest SLAs are not delivery-to-customer commitments.
-    # Fail closed on the recurring misleading framing, even if the same
-    # passage contains the numeric dispatch SLA.
-    if re.search(r"\b(?:standard|usual|typical)\s+delivery\s+time(?:frame|line|s)?\s+(?:is|are|varies?|depends?)\b", draft, re.I) and re.search(r"\b(?:fulfillment\s+channel|FBN|DMF|HBN|dispatch\s+manifest)\b", draft, re.I):
-        return 'DISPATCH_MISREPRESENTED_AS_DELIVERY'
-    if re.search(r"\b(?:deliver(?:y|ed)|arriv(?:al|e))\s+(?:within|in|by)\s+48\s+business\s+hours\b", draft, re.I):
-        return 'DISPATCH_MISREPRESENTED_AS_DELIVERY'
+    # Restore policy amount/percentage checks lost in the 2D.4 merge.
+    # The Phase 2D.3 quantitative checker exempts only the exact INR 500
+    # human-review rule and explicitly attributed customer amounts.
+    from backend.services.quantitative_grounding import unsupported_quantitative_claim
+    if unsupported_quantitative_claim(draft, texts, customer_message=customer_message):
+        return 'UNSUPPORTED_QUANTITATIVE_POLICY_CLAIM'
+
+    # Dispatch SLA != delivery ETA. Evaluate affirmative clauses only.
+    for shipping_clause in re.split(r"[.!?\n;]+", draft):
+        clause = shipping_clause.strip()
+        if not clause:
+            continue
+        if (re.search(r"\b(?:standard|usual|typical)\s+delivery\s+time(?:frame|line|s)?\s+(?:is|are|varies?|depends?)\b", clause, re.I)
+                and re.search(r"\b(?:fulfillment\s+channel|FBN|DMF|HBN|dispatch\s+manifest)\b", clause, re.I)):
+            return 'DISPATCH_MISREPRESENTED_AS_DELIVERY'
+        if (re.search(r"\b(?:deliver(?:y|ed)|arriv(?:al|e))\s+(?:within|in|by)\s+48\s+business\s+hours\b", clause, re.I)
+                and not re.search(r"\b(?:not|no|never|isn't|is not|doesn't|does not)\b", clause, re.I)):
+            return 'DISPATCH_MISREPRESENTED_AS_DELIVERY'
+
     for sentence in re.split(r"(?<=[.!?])\s+|\n+", draft):
+        # Check category and duration together before comma-separated clauses
+        # split them apart (e.g. "For Consumer Electronics, returns ... 14 days").
+        category_window_issue = _unsupported_category_return_window(sentence, texts)
+        if category_window_issue:
+            return category_window_issue
         # Do not skip an entire sentence simply because it contains 'not'.
         for clause in re.split(r"[;,]\s*|\s+but\s+|\s+however\s+", sentence, flags=re.I):
             if _ACTION.search(clause) and not _NEGATION.search(clause):
                 return 'UNVERIFIED_COMPLETED_ACTION'
+            category_window_issue = _unsupported_category_return_window(clause, texts)
+            if category_window_issue:
+                return category_window_issue
             for match in _TIME.finditer(clause):
+                # Category return/replacement eligibility windows refer to the
+                # period allowed to request a remedy, not an action SLA.
+                # "allows returns within 7 days of delivery" is a return
+                # eligibility window, not a promise to deliver in 7 days.
+                # Keep the category/window check above active for wrong values.
+                return_eligibility = (
+                    re.search(r"\b(?:return|replacement|refund|exchange)s?\b", clause, re.I)
+                    and (
+                        re.search(r"\b(?:accepted|eligible|eligibility|request|requested|window|period)\b", clause, re.I)
+                        or re.search(r"\b(?:allows?|permits?|accepts?)\s+returns?\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
+                        or re.search(r"\breturns?\s+(?:are\s+)?(?:allowed|permitted)\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
+                    )
+                    and not re.search(r"\b(?:delivered|arrive|arrives|ship|dispatch|processed|issued|completed)\s+(?:within|in|by)\b", clause, re.I)
+                )
+                if return_eligibility:
+                    continue
                 # Negated timing promises ('cannot promise delivery in 3 days')
                 # aren't commitments; other claims in the sentence still count.
                 prefix = clause[:match.start()]
@@ -145,18 +209,29 @@ def customer_safe_passages(passages):
     for passage in passages:
         if not isinstance(passage, dict) or not isinstance(passage.get("id"), str):
             raise ValueError("Invalid retrieved policy passage")
+        # Curated source-verified excerpts must remain byte-for-byte intact.
+        # In particular the approved electrical safety passage is on page 4.
+        from backend.rag.customer_policy import is_approved_customer_passage
+        if is_approved_customer_passage(passage):
+            safe.append(dict(passage))
+            continue
+        from backend.rag.customer_runtime import customer_mode
+        if customer_mode() == "approved_only":
+            continue
         if passage.get("visibility") != "customer":
             continue
         source = passage.get("source", "")
         if source == "06_Escalations_and_Soft_Skills_SOP.pdf":
             continue
-        # Shipping page 4 contains internal compensation matrices and
-        # ready-made macros that assert unverified actions. A sentence-level
-        # regex is not a safe way to redact that mixed-content page.
-        if source == "01_Shipping_and_Delivery_SOP.pdf" and str(passage.get("page")) == "4":
+        # These are implementation notes or known internal operational pages,
+        # not customer-facing policy, even if ingestion labeled them customer.
+        if (source == "01_Shipping_and_Delivery_SOP.pdf" and passage.get("page") in (3, 4)) or (source == "02_Returns_and_Refunds_SOP.pdf" and passage.get("page") == 3) or (source == "03_Product_and_Warranty_SOP.pdf" and passage.get("page") == 4):
             continue
         original = passage.get("text")
         if not isinstance(original, str) or not original.strip():
+            continue
+        if ("FIXFLOW AI | IMPLEMENTATION GUIDANCE ADDENDUM" in original.upper()
+                or "FIXFLOW AI - CUSTOMER ANSWER GUIDANCE" in original.upper()):
             continue
         # Strip complete sentences containing known sensitive mechanics rather
         # than replacing words inside them (which can invert their meaning).

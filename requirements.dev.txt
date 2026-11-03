@@ -1,0 +1,5 @@
+-r backend/requirements.txt
+-r frontend/requirements.txt
+pytest==9.2.0
+pytest-asyncio==1.4.1
+pytest-playwright==0.10.0

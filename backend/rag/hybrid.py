@@ -15,11 +15,13 @@ from openai import OpenAI
 from pypdf import PdfReader
 from rank_bm25 import BM25Okapi
 
+from backend.rag.customer_policy import approved_passages, is_approved_customer_passage
+
 ROOT = Path(__file__).resolve().parents[2]
 POLICIES = ROOT / "policies"
 INDEX = ROOT / "local_index"
 MODEL = "text-embedding-3-small"
-VERSION = "pdf-sop-v1"
+VERSION = "pdf-sop-v2-safe"
 
 APPROVED_POLICIES = (
     "01_Shipping_and_Delivery_SOP.pdf",
@@ -131,13 +133,19 @@ def chunks():
                     "chunk": chunk_number,
                     "text": passage,
                     "version": VERSION,
-                    "visibility": "internal" if filename in INTERNAL_ONLY else "customer",
+                    "visibility": "internal",
                 })
         if len(documents) == count_before:
             raise ValueError(
                 f"No extractable text in {filename}. "
                 "This PDF may be scanned and require OCR."
             )
+    # Original operations manuals are restricted, regardless of filename.
+    # Only explicitly curated excerpts are customer-retrievable.
+    for passage in approved_passages():
+        passage["title"] = passage["source"].removesuffix(".pdf").replace("_", " ")
+        passage["department"] = DEPARTMENTS[passage["source"]]
+        documents.append(passage)
     return documents
 
 
@@ -218,11 +226,15 @@ class HybridRetriever:
 
         Callers must enforce admin authorization before passing include_internal=True.
         """
+        if include_internal:
+            # This customer-facing retriever has no authenticated admin context.
+            # Never grant internal access based on a caller-controlled boolean.
+            raise PermissionError("Internal SOP retrieval requires a separate authorized service")
         if not isinstance(query, str) or not query.strip() or k <= 0:
             return []
         allowed = {
             i for i, doc in enumerate(self.docs)
-            if include_internal or doc.get("visibility", "customer") == "customer"
+            if is_approved_customer_passage(doc)
         }
         if not allowed:
             return []

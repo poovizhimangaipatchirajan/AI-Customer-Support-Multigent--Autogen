@@ -3,7 +3,6 @@ from __future__ import annotations
 import html
 import base64
 import json
-import os
 import re
 import requests
 from datetime import datetime
@@ -97,11 +96,11 @@ def metric_card(label, value, icon, tone="blue"):
     st.markdown(f'<div class="ff-metric"><div class="ff-metric-icon ff-{tone}">{icon}</div><div><div class="ff-metric-label">{safe(label)}</div><div class="ff-metric-number">{safe(value)}</div></div></div>', unsafe_allow_html=True)
 
 
-def ticket_list(items, admin=False):
+def ticket_list(items, admin=False, key_prefix="tickets"):
     if not items:
         st.info("No tickets to display.")
         return
-    for t in items:
+    for row_index, t in enumerate(items):
         a, b, c = st.columns([5, 2, 1.4], vertical_alignment="center")
         with a:
             st.markdown(f"**{safe(t.get('subject', 'Support request'))}**")
@@ -112,7 +111,7 @@ def ticket_list(items, admin=False):
         with b:
             st.markdown(pill(t.get("status")), unsafe_allow_html=True)
         with c:
-            if st.button("View →", key=f"open_{t['id']}", use_container_width=True):
+            if st.button("View →", key=f"{key_prefix}_open_{t['id']}_{row_index}", use_container_width=True):
                 go("Ticket", t["id"])
         st.divider()
 
@@ -269,7 +268,7 @@ def customer_home(rows, user=None):
             go("Help center")
     st.write("")
     title("Recent tickets")
-    ticket_list(rows[:5])
+    ticket_list(rows[:5], key_prefix="customer_recent")
 
 
 def complaint():
@@ -744,7 +743,7 @@ def admin_dashboard(queue, tickets, complaint_rows):
             use_container_width=True, hide_index=True,
         )
         st.markdown("#### Recent tickets")
-        ticket_list(tickets[:5], admin=True)
+        ticket_list(tickets[:5], admin=True, key_prefix="admin_recent")
     else:
         st.info("No tickets have been created in this database yet.")
 
@@ -757,7 +756,7 @@ def admin_dashboard(queue, tickets, complaint_rows):
     with c:
         metric_card("High-value requests", sum(float(x.get("claimed_amount") or 0) >= 500 for x in queue), "₹", "blue")
     st.markdown("#### Escalated tickets")
-    ticket_list(queue, admin=True)
+    ticket_list(queue, admin=True, key_prefix="admin_escalated")
 
 
 def help_center_page():
@@ -875,7 +874,7 @@ def main():
             term = st.text_input("Search by ticket ID or subject", placeholder="Search tickets")
             term = term.strip().casefold()
             ticket_list([t for t in rows if term in
-                         (public_id(t) + " " + (t.get("subject") or "")).casefold()], admin=True)
+                         (public_id(t) + " " + (t.get("subject") or "")).casefold()], admin=True, key_prefix="admin_search")
         elif page == "Refund reviews":
             refund_reviews_page()
         elif page in ("Audit logs"):
@@ -905,7 +904,7 @@ def main():
     elif page == "My tickets":
         title("My tickets", "Select a ticket to see progress, responses and follow-ups.")
         term = st.text_input("Search tickets", placeholder="Ticket number or subject")
-        ticket_list([t for t in rows if term.lower() in (public_id(t) + " " + t.get("subject", "")).lower()])
+        ticket_list([t for t in rows if term.lower() in (public_id(t) + " " + t.get("subject", "")).lower()], key_prefix="customer_search")
     elif page == "Help center":
         help_center_page()
     elif page == "Account":

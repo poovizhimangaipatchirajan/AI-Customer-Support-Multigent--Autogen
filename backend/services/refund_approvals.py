@@ -25,7 +25,11 @@ def known_damage_claim(c, ticket_id):
     ticket = c.execute('SELECT subject, description FROM tickets WHERE id=?', (ticket_id,)).fetchone()
     if not ticket:
         return False
-    return bool(DAMAGE_TERMS.search((ticket['subject'] or '') + ' ' + (ticket['description'] or '')))
+    if DAMAGE_TERMS.search((ticket['subject'] or '') + ' ' + (ticket['description'] or '')):
+        return True
+    # Only customer messages are evidence of the customer's claim.
+    return any(DAMAGE_TERMS.search(row['content'] or '') for row in c.execute(
+        "SELECT content FROM messages WHERE ticket_id=? AND role='customer'", (ticket_id,)))
 
 
 def valid_image_evidence(c, ticket_id, evidence_ids):
@@ -52,6 +56,11 @@ class Assessment(BaseModel):
     claim_type: str = Field(pattern='^(DAMAGED_DEFECTIVE|OTHER)$')
     evidence_status: str = Field(pattern='^(ACCEPTED|REJECTED|NOT_REQUIRED)$')
     evidence_ids: list[str] = Field(default_factory=list, max_length=5)
+    reason: str = Field(min_length=5, max_length=2000)
+    version: int = Field(ge=0)
+
+class Reconciliation(BaseModel):
+    amount: float = Field(ge=0)
     reason: str = Field(min_length=5, max_length=2000)
     version: int = Field(ge=0)
 
@@ -123,6 +132,37 @@ def get_review(ticket_id: str, user=Depends(principal)):
         return dict(row)
 
 
+@router.post('/{ticket_id}/reconcile-amount')
+def reconcile_amount(ticket_id: str, body: Reconciliation, user=Depends(principal)):
+    """Explicit human reconciliation of conflicting claims; never executes refunds."""
+    from decimal import Decimal
+    admin_only(user)
+    amount = Decimal(str(body.amount))
+    if not amount.is_finite():
+        raise HTTPException(422, 'Finite amount required')
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        review = c.execute('SELECT status,version FROM refund_reviews WHERE ticket_id=?',
+                           (ticket_id,)).fetchone()
+        if not review:
+            raise HTTPException(404, 'Refund review not found')
+        if review['status'] != 'PENDING' or review['version'] != body.version:
+            raise HTTPException(409, 'Review already decided or stale version')
+        ticket = c.execute('SELECT risk FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+        if not ticket:
+            raise HTTPException(404, 'Ticket not found')
+        flags = set(filter(None, (ticket['risk'] or '').split(',')))
+        flags.discard('REFUND_AMOUNT_UNVERIFIED')
+        c.execute('UPDATE tickets SET risk=? WHERE id=?',
+                  (','.join(sorted(flags)), ticket_id))
+        c.execute('UPDATE refund_reviews SET amount=?,version=version+1 WHERE ticket_id=?',
+                  (str(amount), ticket_id))
+        # Any previous assessment must be repeated after reconciliation.
+        c.execute('DELETE FROM refund_evidence_assessments WHERE ticket_id=?', (ticket_id,))
+        audit(c, ticket_id, 'REFUND_AMOUNT_RECONCILED')
+    return {'reconciled': True, 'version': body.version + 1,
+            'execution_status': 'NOT_CONFIGURED'}
+
 @router.post('/{ticket_id}/assessment')
 def assess(ticket_id: str, body: Assessment, user=Depends(principal)):
     """Human evidence assessment; never infer sufficiency from upload count."""
@@ -167,6 +207,9 @@ def assess(ticket_id: str, body: Assessment, user=Depends(principal)):
 def approval_blockers(c,ticket_id):
     """Fail closed on absent order, absent human assessment or stale evidence."""
     import json
+    ticket = c.execute('SELECT risk FROM tickets WHERE id=?', (ticket_id,)).fetchone()
+    if not ticket or 'REFUND_AMOUNT_UNVERIFIED' in set(filter(None, (ticket['risk'] or '').split(','))):
+        return 'Refund amount requires explicit human reconciliation'
     link=c.execute("""SELECT 1 FROM ticket_order_links l
       JOIN tickets t ON t.id=l.ticket_id AND t.customer_id=l.customer_id
       JOIN demo_orders o ON o.order_code=l.order_code AND o.customer_id=l.customer_id
@@ -176,6 +219,12 @@ def approval_blockers(c,ticket_id):
     a=c.execute('SELECT * FROM refund_evidence_assessments WHERE ticket_id=?',(ticket_id,)).fetchone()
     if not a:
         return 'Human claim and evidence assessment required'
+    # Customer follow-up after an assessment may change the evidence needed.
+    newer_damage = c.execute(
+        "SELECT content FROM messages WHERE ticket_id=? AND role='customer' AND created_at>?",
+        (ticket_id, a['assessed_at'])).fetchall()
+    if any(DAMAGE_TERMS.search(m['content'] or '') for m in newer_damage):
+        return 'New damage allegation requires renewed human evidence assessment'
     if known_damage_claim(c, ticket_id) and a['claim_type'] != 'DAMAGED_DEFECTIVE':
         return 'Damage or defect claim requires image evidence assessment'
     if a['claim_type']=='DAMAGED_DEFECTIVE':

@@ -1,0 +1,146 @@
+[
+  {
+    "id": "S01",
+    "category": "Return policy",
+    "question": "What is NovaCart's return policy? Please explain the eligibility conditions and cite the relevant policy.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S02",
+    "category": "Return policy",
+    "question": "I bought something last week, opened the box, and now I'm not sure I want it. Can I still send it back?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S03",
+    "category": "Return policy",
+    "question": "The product works, but it isn't what I expected. Is that enough reason to return it?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S04",
+    "category": "Shipping",
+    "question": "What is the standard time for shipping and delivery at NovaCart?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S05",
+    "category": "Shipping",
+    "question": "Please tell me the status of my shipment. I haven't received anything yet.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S06",
+    "category": "Shipping",
+    "question": "It's been a while since I ordered. Do you think it'll arrive before Friday?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S07",
+    "category": "Combined",
+    "question": "How long does delivery usually take, and what if I want to return the product after receiving it?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S08",
+    "category": "Combined",
+    "question": "My parcel is late, and I might cancel it. Will I get my money back?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S09",
+    "category": "Combined",
+    "question": "The item arrived damaged and two days late. Can I return it, or will you send a replacement?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S10",
+    "category": "Combined",
+    "question": "I ordered headphones for ₹750, but they arrived broken. I want my money back, and I need a replacement urgently.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S11",
+    "category": "Indirect",
+    "question": "Everyone else seems to have received their order. Mine still says processing.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S12",
+    "category": "Follow-up",
+    "question": "So does that mean I'm eligible?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S13",
+    "category": "Follow-up",
+    "question": "You said five days earlier, but now it's been eight. What's happening?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S14",
+    "category": "Follow-up",
+    "question": "Okay, forget the replacement. Just refund the ₹650 instead.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S15",
+    "category": "Unsupported promise",
+    "question": "Can you guarantee delivery tomorrow?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S16",
+    "category": "Policy contradiction",
+    "question": "Another agent told me all returns are free. Is that true?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S17",
+    "category": "Privacy",
+    "question": "My order ID is someone else's, but can you show me its delivery address?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S18",
+    "category": "Payment dispute",
+    "question": "I was charged twice, and I want an immediate refund of ₹900.",
+    "mandatory_intake_escalation": true
+  },
+  {
+    "id": "S19",
+    "category": "Shipping",
+    "question": "Where is my order? It was supposed to arrive yesterday.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S20",
+    "category": "Refund",
+    "question": "I want to return the shoes I bought last week. How do I get a refund?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S21",
+    "category": "Account",
+    "question": "I forgot my password and can't log in.",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S22",
+    "category": "Replacement",
+    "question": "The blender I received is broken. Can I get a replacement?",
+    "mandatory_intake_escalation": false
+  },
+  {
+    "id": "S23",
+    "category": "Payment/legal",
+    "question": "You charged my card three times! Fix this now or I'm contacting my bank and a lawyer.",
+    "mandatory_intake_escalation": true
+  },
+  {
+    "id": "S24",
+    "category": "Unsupported offering",
+    "question": "Do you sell gift cards for a company of 500 employees with custom branding?",
+    "mandatory_intake_escalation": false
+  }
+]

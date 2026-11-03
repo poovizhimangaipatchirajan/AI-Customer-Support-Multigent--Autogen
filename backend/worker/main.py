@@ -13,9 +13,11 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
 from backend.db.store import init, connect, audit
-from backend.rag.hybrid import HybridRetriever, INTERNAL_ONLY
+from backend.rag.hybrid import INTERNAL_ONLY
+from backend.rag.customer_runtime import create_customer_retriever
 from backend.agents.team import make_team
-from backend.services.grounding_guard import check_response_grounding, check_customer_visibility
+from backend.services.grounding_guard import check_response_grounding, check_customer_visibility, customer_safe_passages
+from backend.services.evidence_quality import missing_citation_domains
 from backend.services_rubric_logging import migrate as migrate_rubric, record_agent_events, record_agent_outputs
 
 LEASE_SECONDS = 180
@@ -184,8 +186,20 @@ def persist(
             and evidence[item].get("visibility") == "customer"
             and evidence[item].get("source") not in INTERNAL_ONLY
         ]
+        # Reapply the same passage filter at the final database boundary.
+        # Visibility metadata alone is insufficient: some indexed internal
+        # addenda and operations pages were mislabeled as customer-visible.
+        filtered = customer_safe_passages([evidence[i] for i in approved_ids])
+        safe_by_id = {p["id"]: p for p in filtered}
+        if len(safe_by_id) != len(set(approved_ids)):
+            unsafe_citation = True
+        else:
+            unsafe_citation = False
+
         # Log decision codes only. Never log customer text or policy excerpts.
         rejection_reasons = []
+        if unsafe_citation:
+            rejection_reasons.append("UNSAFE_POLICY_PASSAGE")
         if not requested_ids:
             rejection_reasons.append("MISSING_CITATIONS")
         elif len(approved_ids) != len(requested_ids):
@@ -200,10 +214,29 @@ def persist(
         # A valid citation is necessary but not sufficient for auto-publication.
         if not rejection_reasons and not escalate:
             grounding_reason = check_response_grounding(
-                draft, [evidence[item] for item in approved_ids]
+                draft, [safe_by_id[item] for item in approved_ids]
             )
             if grounding_reason:
                 rejection_reasons.append(grounding_reason)
+        # A multi-intent, non-escalated answer must cite each explicit policy
+        # domain. This is a provenance check, not semantic entailment.
+        if not rejection_reasons and not escalate:
+            latest = c.execute(
+                "SELECT content FROM messages WHERE ticket_id=? AND "
+                "role IN ('customer','user') AND visible=1 "
+                "ORDER BY created_at DESC, rowid DESC LIMIT 1", (ticket_id,)
+            ).fetchone()
+            if latest:
+                customer_query = latest["content"]
+            else:
+                original = c.execute(
+                    "SELECT subject, description FROM tickets WHERE id=?", (ticket_id,)
+                ).fetchone()
+                customer_query = ((original["subject"] or "") + " " +
+                                  (original["description"] or "")) if original else ""
+            if missing_citation_domains(customer_query, draft,
+                                        [safe_by_id[i] for i in approved_ids]):
+                rejection_reasons.append("MISSING_DOMAIN_CITATION")
         visibility_reason = check_customer_visibility(draft)
         if visibility_reason:
             rejection_reasons.append(visibility_reason)
@@ -533,7 +566,7 @@ async def main():
 
     init()
     migrate_rubric()
-    retriever = HybridRetriever()
+    retriever = create_customer_retriever()
 
     print("FixFlow worker ready", flush=True)
 

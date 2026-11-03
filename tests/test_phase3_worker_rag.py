@@ -59,8 +59,25 @@ def test_claim_sets_processing_and_lease(isolated_db):
 def test_safe_draft_publishes_once(isolated_db):
     tid, jid = seed_ticket()
     row = worker.claim()
-    assert worker.persist(jid, tid, 'Delivery summary', 'Here is the policy guidance.',
-                          ['chunk-1'], False, {'chunk-1': {'id': 'chunk-1', 'visibility': 'customer', 'source': 'customer_policy.pdf'}}) == 'PERSISTED'
+    draft = (
+        "I cannot verify your order's current delivery status from policy documents. "
+        "Please provide your order ID so support can check."
+    )
+    evidence = {
+        'chunk-1': {
+            'id': 'chunk-1',
+            'visibility': 'customer',
+            'source': '01_Shipping_and_Delivery_SOP.pdf',
+            'page': 1,
+            'text': (
+                'Order-specific delivery status requires a verified order ID. '
+                'Delivery information must be checked against the order record.'
+            ),
+        }
+    }
+    assert worker.persist(
+        jid, tid, 'Delivery summary', draft, ['chunk-1'], False, evidence
+    ) == 'PERSISTED'
     worker.finish(row, True)
     ticket, job, messages = state(tid, jid)
     assert ticket['status'] == 'ANSWERED'
@@ -69,6 +86,31 @@ def test_safe_draft_publishes_once(isolated_db):
     worker.finish(row, True)
     _, _, messages_again = state(tid, jid)
     assert len(messages_again) == len(messages)
+
+
+
+def test_missing_policy_text_requires_human_review(isolated_db):
+    tid, jid = seed_ticket()
+    row = worker.claim()
+    assert worker.persist(
+        jid, tid, 'Delivery summary', 'Here is the policy guidance.',
+        ['chunk-1'], False,
+        {'chunk-1': {
+            'id': 'chunk-1',
+            'visibility': 'customer',
+            'source': 'customer_policy.pdf',
+            'page': 1,
+            # No text: a citation identifier alone cannot justify publication.
+        }},
+    ) == 'PERSISTED'
+    worker.finish(row, True)
+    ticket, job, messages = state(tid, jid)
+    assert ticket['status'] == 'ESCALATED'
+    assert job['status'] == 'DONE'
+    assert not any(m['role'] == 'assistant' and m['visible'] for m in messages)
+    with store.connect() as c:
+        result = c.execute('SELECT requires_review FROM ai_results WHERE job_id=?', (jid,)).fetchone()
+    assert result is not None and result['requires_review'] == 1
 
 
 def test_missing_evidence_stays_private_and_escalates(isolated_db):
@@ -142,11 +184,15 @@ def test_log_acknowledgement_must_be_from_log_agent():
 
 def test_hybrid_rrf_and_internal_filter_without_network(monkeypatch):
     # Construct a retriever without reading indexes or making API calls.
+    # Phase 2E: use genuine curated policy passages, not legacy visibility labels.
+    from backend.rag.customer_policy import approved_passages
+
+    approved = approved_passages()
     r = hybrid.HybridRetriever.__new__(hybrid.HybridRetriever)
     r.docs = [
-        {'id': 'public-1', 'text': 'shipping delivery', 'visibility': 'customer'},
+        approved[0],
         {'id': 'internal-1', 'text': 'internal escalation', 'visibility': 'internal'},
-        {'id': 'public-2', 'text': 'returns refund', 'visibility': 'customer'},
+        approved[1],
     ]
     r.model = 'test-embedding-model'
     r.idx = SimpleNamespace(search=lambda vec, count: (None, [[1, 0, 2]]))
@@ -154,11 +200,19 @@ def test_hybrid_rrf_and_internal_filter_without_network(monkeypatch):
     r.client = SimpleNamespace(embeddings=SimpleNamespace(create=lambda **kw:
         SimpleNamespace(data=[SimpleNamespace(embedding=[1.0, 0.0])])))
     monkeypatch.setattr(hybrid.faiss, 'normalize_L2', lambda x: None)
+
     public = r.search('shipping', k=3)
-    assert [x['id'] for x in public] == ['public-1', 'public-2']
-    all_results = r.search('shipping', k=3, include_internal=True)
-    assert len(all_results) == 3
-    assert all_results[0]['id'] == 'internal-1'
+    assert [x['id'] for x in public] == [approved[0]['id'], approved[1]['id']]
+    assert all(x['visibility'] == 'customer' for x in public)
+
+    # This retriever has no admin identity; include_internal must fail closed.
+    with pytest.raises(PermissionError):
+        r.search('shipping', k=3, include_internal=True)
+
+    # Old customer metadata alone must not grant publication rights.
+    r.docs[0] = {'id': 'legacy', 'text': 'shipping delivery', 'visibility': 'customer'}
+    remaining = r.search('shipping', k=3)
+    assert [x['id'] for x in remaining] == [approved[1]['id']]
 
 
 def test_empty_query_skips_embedding_call():
