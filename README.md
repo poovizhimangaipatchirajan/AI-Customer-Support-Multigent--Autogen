@@ -27,9 +27,11 @@ FixFlow AI is a local-first customer-support application built with a **FastAPI 
 
 | Request | Automatic checks | Outcome |
 |---|---|---|
-| Damaged/defective item, **under ₹500** | Clear amount, no risk flags, linked order owned by the customer and **delivered**, amount ≤ order total, a genuine photo uploaded, order never auto-refunded, **≤ 1 automatic acceptance per customer per 365 days** | All pass → **accepted for processing** without human review (ticket Answered, refund status "accepted automatically"). Any fail → asked for details or human review |
+| Damaged/defective item, **under ₹500** | Clear amount, no risk flags, linked order owned by the customer and **delivered**, amount ≤ order total, a genuine photo uploaded, order never auto-refunded, **≤ 1 automatic acceptance per customer per 365 days** | All pass → **queued for refund processing** without a human review step (ticket Answered, refund status "passed the automatic eligibility checks"). Any fail → asked for details or human review |
 | Any refund **₹500 or more** | Same order and evidence checks | **Always human review**: admin assessment and APPROVED/REJECTED decision |
 | Fraud, legal threat, payment dispute | — | **Always human review**, any amount |
+
+**How this fits the rule that refunds are never executed automatically:** passing the automatic checks is eligibility triage, not a payment and not an approval. Nothing is refunded by the application; the customer is told explicitly that no money has been refunded yet. Every request of ₹500 or more, and every request with a fraud, legal, dispute, amount or evidence concern, still goes to a human.
 
 Photos are confirmed as genuine uploaded images, not inspected for content; the per-customer annual limit is the fraud control. Every acceptance and decision is audited and records `execution_status: NOT_CONFIGURED`. A production deployment would add the payment provider's refund API (idempotent, with transaction reference) before telling customers a refund was initiated, plus sampling audits of automatic acceptances.
 - AI answers should be grounded in approved evidence and must not invent order status, refund status, payment outcomes, or delivery estimates.
@@ -87,7 +89,7 @@ flowchart TD
     K --> R["Step 3 · ResolutionAgent: draft grounded reply"]
     R --> L["Step 4 · LogAgent: persist outcome"]
     L --> CHECK{"Backend validation: citations, grounding, risk"}
-    CHECK -->|"Under INR 500, verified order and photo"| AUTO["Refund accepted automatically, no payment executed"]
+    CHECK -->|"Under INR 500, verified order and photo"| AUTO["Passed automatic checks, queued for refund processing, no payment executed"]
     CHECK -->|"No review needed"| SAFE["Grounded reply published"]
     CHECK -->|"Risk, INR 500 or more, or weak evidence"| H["Human review queue"]
     H --> ADMIN["Administrator edits and approves reply"]
@@ -167,14 +169,14 @@ For a fresh installation, build the policy index using the project's existing co
 
 ### Test layout
 
-`tests/` holds **23 feature-grouped files** (907 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+`tests/` holds **23 feature-grouped files** (908 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
 
 | File | Covers |
 | --- | --- |
 | `test_auth_accounts.py` | Registration, verification, login, sessions, evidence-upload security |
 | `test_risk_screening.py` | ₹500 inclusive threshold, fraud/legal/payment-dispute flags, multilingual risk, amount attribution |
 | `test_refund_workflow.py` | Refund clarification, follow-ups, approval prerequisites, review decisions, case closure |
-| `test_auto_refund.py` | Under-₹500 automatic acceptance and its one-per-customer-per-year limit |
+| `test_auto_refund.py` | Under-₹500 automatic eligibility checks and the one-per-customer-per-year limit |
 | `test_grounding_return_windows.py`, `test_grounding_guard.py`, `test_quantitative_grounding.py` | Return-window anchors, category windows, category-membership repair, numeric claims |
 | `test_evidence_quality.py`, `test_customer_evidence_domains.py` | Citation sufficiency per policy domain, cited-text support, evidence fallbacks |
 | `test_retrieval.py`, `test_customer_index_visibility.py` | Hybrid FAISS + BM25 + RRF ranking, approved-index validation, internal-SOP isolation |
@@ -198,7 +200,7 @@ $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/te
 
 | Batch (run 2026-11-05) | Result |
 | --- | --- |
-| Full offline suite | **907 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Full offline suite | **908 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
 | Approved-only lane | **35 passed** |
 
 ### Live acceptance (opt-in, uses OpenAI)
@@ -299,7 +301,7 @@ All screenshots in `evidence/screenshots/` are produced by the Playwright journe
 | 6 | [Escalated: broken blender](evidence/screenshots/06_escalated_broken_blender.png) | **Human review** (red), no replacement promised |
 | 7 | [Escalated: charged three times + lawyer](evidence/screenshots/07_escalated_billing_lawyer.png) | Legal threat and payment dispute escalated |
 | 8 | [Escalated: corporate gift cards](evidence/screenshots/08_escalated_unsupported_giftcards.png) | No matching policy, honest reply, no citations |
-| 9 | [Own case 1: auto refund under ₹500](evidence/screenshots/09_own_case_auto_refund_under_500.png) | Delivered order + photo → accepted automatically, no payment executed ([sample orders](evidence/screenshots/09a_customer_sample_orders.png)) |
+| 9 | [Own case 1: auto refund under ₹500](evidence/screenshots/09_own_case_auto_refund_under_500.png) | Delivered order + photo → passed automatic checks, queued for refund processing, no payment executed ([sample orders](evidence/screenshots/09a_customer_sample_orders.png)) |
 | 10 | [Own case 2: refund ₹600](evidence/screenshots/10_own_case_refund_600_human_review.png) | ₹500+ always requires human review |
 | 11 | [Help Center](evidence/screenshots/11_help_center_no_ticket.png) | Grounded answer with source, no ticket created |
 | 12 | [Prompt injection](evidence/screenshots/12_prompt_injection_blocked.png) | Escalated safely, nothing disclosed or approved |

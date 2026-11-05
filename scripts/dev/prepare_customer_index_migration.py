@@ -9,7 +9,7 @@ import importlib.util
 import json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY = ROOT / 'backend/rag/customer_policy.py'
 POLICIES = ROOT / 'policies'
 MANIFEST = ROOT / 'local_index/manifest.json'

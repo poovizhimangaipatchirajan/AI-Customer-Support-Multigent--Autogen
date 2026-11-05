@@ -87,7 +87,8 @@ def test_eligible_low_value_damage_refund_is_accepted_without_review(client):
     detail, review, audit = state(client, h, t['id'])
     assert detail['status'] == 'ANSWERED'
     reply = [m['content'] for m in detail['messages'] if m['role'] == 'assistant'][-1]
-    assert 'accepted for processing' in reply and 'No payment has been made yet' in reply
+    assert 'queued for refund processing' in reply and 'no money has been refunded yet' in reply
+    assert 'without manual review' not in reply and 'approved' not in reply.lower()
     assert 'AGENT_DRAFT' not in reply
     assert review['status'] == 'AUTO_ACCEPTED' and review['execution_status'] == 'NOT_CONFIGURED'
     assert 'AUTO_REFUND_ACCEPTED' in audit
@@ -173,7 +174,7 @@ def test_ineligible_cases_keep_the_review_flow(client, case, expected_reason):
     if t['status'] == 'QUEUED':
         run_worker(t['id'])
     detail, review, audit = state(client, h, t['id'])
-    assert detail['status'] != 'ANSWERED' or 'accepted for processing' not in str(detail['messages'])
+    assert detail['status'] != 'ANSWERED' or 'queued for refund processing' not in str(detail['messages'])
     assert 'AUTO_REFUND_ACCEPTED' not in audit
     assert review.get('status') != 'AUTO_ACCEPTED'
     with store.connect() as db:

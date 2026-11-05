@@ -710,9 +710,9 @@ def refund_decision_summary(ticket_id: str):
     elif status == "REJECTED":
         st.warning("Refund review rejected. No refund or payment has been executed.")
     elif status == "AUTO_ACCEPTED":
-        st.success(f"Refund request of ₹{float(review.get('amount') or 0):,.2f} accepted automatically: "
-                   "order ownership and delivery verified, photographs received. "
-                   "No payment has been executed yet.")
+        st.success(f"Refund request of ₹{float(review.get('amount') or 0):,.2f} passed the automatic eligibility checks and is queued for refund processing: "
+                   "order ownership and delivery verified, photographs received (not inspected). "
+                   "This is not a payment; no refund has been executed yet.")
     if review.get("decided_at"):
         st.caption(f"Decision recorded: {stamp(review['decided_at'])}")
     st.caption(f"Payment execution: {review.get('execution_status', 'NOT_CONFIGURED')}. Ticket status is managed separately.")

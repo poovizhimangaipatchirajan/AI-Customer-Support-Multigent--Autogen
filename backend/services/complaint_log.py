@@ -129,8 +129,31 @@ def agent_outputs(ticket_id: str, user=Depends(principal)):
             raise HTTPException(404, 'Ticket not found')
         return [dict(r) for r in c.execute("SELECT agent,output,created_at,job_id FROM agent_output_summaries WHERE ticket_id=? ORDER BY created_at,id", (ticket_id,))]
 
+def outcome_and_reason(c, ticket, risk, has_acceptances):
+    """Outcome and escalation reason that say what actually happened.
+
+    A ticket a human reviewed and answered reads 'Resolved after human review'
+    with the reason prefixed 'Reviewed by support:', so a resolved row never
+    looks like an open escalation.
+    """
+    status = ticket['status']
+    reasons = readable_reasons(risk)
+    if has_acceptances and c.execute('SELECT 1 FROM auto_refund_acceptances WHERE ticket_id=?',
+                                     (ticket['id'],)).fetchone():
+        return 'Passed automatic checks; queued for refund processing (no payment executed)', ''
+    reviewed = c.execute("SELECT 1 FROM audit WHERE ticket_id=? AND event='ADMIN_PUBLISHED'",
+                         (ticket['id'],)).fetchone()
+    if status in ('ANSWERED', 'RESOLVED') and reviewed:
+        return 'Resolved after human review', ('Reviewed by support: ' + reasons) if reasons else 'Reviewed by support'
+    if status == 'ESCALATED':
+        return 'Escalated', reasons or 'Policy evidence or case decision needs human review'
+    return OUTCOME.get(status, status), reasons
+
+
 def _rows():
     with connect() as c:
+        has_acceptances = bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                                         "AND name='auto_refund_acceptances'").fetchone())
         tickets = [dict(r) for r in c.execute('''SELECT t.*,u.full_name,u.public_id AS customer_code
             FROM tickets t LEFT JOIN users u ON u.id=t.customer_id ORDER BY t.created_at DESC''')]
         output = []
@@ -138,6 +161,7 @@ def _rows():
             last = c.execute('''SELECT draft,citations FROM ai_results WHERE ticket_id=? ORDER BY created_at DESC LIMIT 1''',(t['id'],)).fetchone()
             message = c.execute("SELECT content FROM messages WHERE ticket_id=? AND role IN ('assistant','admin') AND visible=1 ORDER BY created_at DESC LIMIT 1",(t['id'],)).fetchone()
             risk = t.get('risk') or ''
+            outcome, reason = outcome_and_reason(c, t, risk, has_acceptances)
             category, urgency, sentiment = classify_ticket(
                 t.get('subject'), t.get('description'), risk
             )
@@ -171,8 +195,8 @@ def _rows():
                 'response_status':'Published' if message else 'No published response',
                 'ai_draft':last['draft'] if last else '',
                 'status':t['status'],
-                'outcome':OUTCOME.get(t['status'], t['status']),
-                'escalation_reason':readable_reasons(risk) or ('Policy evidence or case decision needs human review' if t['status']=='ESCALATED' else ''),
+                'outcome':outcome,
+                'escalation_reason':reason,
             })
         return [
             {field: row.get(field, "") for field in FIELDS}

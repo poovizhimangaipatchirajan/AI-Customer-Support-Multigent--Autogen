@@ -24,7 +24,7 @@ Playwright journeys** (`tests/e2e/test_screenshot_journeys.py`). Ticket codes (`
 | Charged three times | Billing dispute + legal threat | Escalated (`LEGAL`, `PAYMENT_DISPUTE`) |
 | Corporate gift cards | No matching policy | Escalated honestly, no citations |
 | Instructions test | Prompt injection | Escalated; nothing disclosed or approved |
-| Damaged USB-C cable (₹299) | Delivered order + photo | Accepted automatically for processing; no payment executed |
+| Damaged USB-C cable (₹299) | Delivered order + photo | Passed automatic eligibility checks; queued for refund processing; no payment executed |
 | Damaged headphones refund (₹600) | ₹500 or more | Human review → refund review APPROVED → published → recorded via UserProxyAgent; no payment executed |
 
 ## Reproduce
@@ -37,6 +37,6 @@ $env:FIXFLOW_RUN_E2E = "1"; python -m pytest tests/e2e -q   # live browser journ
 
 ## Notes
 
-- No refund or payment is ever executed; approvals and automatic acceptances record `execution_status: NOT_CONFIGURED`.
+- No refund or payment is ever executed; review approvals and automatic eligibility passes record `execution_status: NOT_CONFIGURED`.
 - Uploaded photos are confirmed as genuine images, never as proof of the claimed defect.
 - Accounts, orders and tickets are fictional; no real customer data is included.

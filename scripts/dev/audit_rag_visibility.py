@@ -9,7 +9,7 @@ import json
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 POLICY_MODULE = ROOT / 'backend' / 'rag' / 'customer_policy.py'
 INDEX_MANIFEST = ROOT / 'local_index' / 'manifest.json'
 INDEX_DENSE = ROOT / 'local_index' / 'dense.faiss'

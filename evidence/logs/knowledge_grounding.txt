@@ -5,7 +5,7 @@ Tickets were created by tests/e2e/test_screenshot_journeys.py with fictional acc
 Every cited ID is an approved customer passage; the text shown is the passage itself.
 
 ==============================================================================
-FF-2026-000122  Where is my order?  [RESOLVED]
+FF-2026-000154  Where is my order?  [RESOLVED]
   Customer:
     Where is my order? It was supposed to arrive yesterday.
   Customer-facing reply:
@@ -27,55 +27,53 @@ FF-2026-000122  Where is my order?  [RESOLVED]
         missing, contact NovaCart support with your order details for identity and delivery
         verification and investigation. A refund or replacement is not automatically guaranteed.
 ==============================================================================
-FF-2026-000150  Return my shoes  [ANSWERED]
+FF-2026-000155  Return my shoes  [ANSWERED]
   Customer:
     I want to return the shoes I bought last week. How do I get a refund?
   Customer-facing reply:
-    You can initiate the return of your shoes through the orders dashboard on the platform. For
-    fashion and apparel items, there is a 14-day return window provided the shoes are unworn,
-    unwashed, with brand tags intact and in the original packaging. Eligible remedies include a
-    refund to the original payment source, wallet refund, or size/color exchange, subject to
-    verification. Please note that submitting a return request is not an automatic approval; your
-    eligibility and order ownership will be verified before processing the refund.
+    You can initiate a return for your shoes through the orders dashboard on NovaCart. Please ensure
+    the shoes are unworn and unwashed, with brand tags intact and in the original packaging, as
+    fashion and apparel items have a 14-day return window. If the shoes are damaged or defective,
+    photographs will be required. After you submit the return request, eligibility and order
+    ownership will be verified before approval. Eligible remedies include a refund to your original
+    payment source or a wallet refund, subject to verification. If you provide your order details,
+    we can assist further with the process.
   Cited approved passages:
-    - f19af5c766a3e755  02_Returns_and_Refunds_SOP.pdf, page 1
-        Fashion and apparel have a 14-day return window if unworn and unwashed, with brand tags
-        intact and original packaging. Eligible remedies include refund to source, wallet refund, or
-        size/color exchange, subject to verification.
     - ca91ca28b962d2b7  02_Returns_and_Refunds_SOP.pdf, page 1
         Customers can initiate a return through the orders dashboard. Photographs are required for
         damaged or defective products. Submission is not approval; eligibility and order ownership
         must be verified.
+    - f19af5c766a3e755  02_Returns_and_Refunds_SOP.pdf, page 1
+        Fashion and apparel have a 14-day return window if unworn and unwashed, with brand tags
+        intact and original packaging. Eligible remedies include refund to source, wallet refund, or
+        size/color exchange, subject to verification.
 ==============================================================================
-FF-2026-000124  Forgot password  [ANSWERED]
+FF-2026-000156  Forgot password  [ANSWERED]
   Customer:
     I forgot my password and can't log in.
   Customer-facing reply:
-    To recover your account after forgetting your password, you will need to complete identity
-    verification as account changes and recovery require it. Please do not share your password or
-    any sensitive payment information with support agents. You can usually start the password
-    recovery process by selecting "Forgot Password" on the login page and following the verification
-    steps provided there. If you need further assistance, please provide your order identifier and
-    verify your identity for secure support.
-    The policy does not specify the exact steps or methods for password recovery beyond requiring
-    identity verification.
+    If you forgot your password and can't log in, you will need to go through the account recovery
+    process, which requires identity verification. Please do not share your password or any full
+    payment card details or CVV with any support agent. You can typically start the password reset
+    or recovery process on the login page by selecting "Forgot Password" and following the
+    instructions to verify your identity and reset your password securely.
   Cited approved passages:
     - 9ecafb4a3f88e91b  04_Account_and_Login_SOP.pdf, page 1
         Account changes and recovery require identity verification. Never share a password, full
         payment-card number, or CVV with a support agent.
 ==============================================================================
-FF-2026-000132  Broken blender  [ESCALATED]
+FF-2026-000157  Broken blender  [ESCALATED]
   Customer:
     The blender I received is broken. Can I get a replacement?
   Customer-facing reply:
-    Thank you for reaching out about your broken blender. Consumer electronics have a 7-day return
-    window. To consider a replacement, please ensure you have the original box, all accessories, and
-    that the serial numbers match your invoice. A technician diagnosis and verification are required
-    to proceed with a technical replacement or refund. If your blender fails to power on or has
-    severe functional failure within seven days of delivery, it may qualify for a Dead-on-Arrival
-    assessment. However, please note that certification and replacement require verification, and
-    replacement dispatch is not guaranteed by policy. Kindly contact support within the 7-day window
-    with the necessary items for assessment and further assistance.
+    Thank you for reaching out about your broken blender. As a consumer electronic item, it has a
+    7-day return window. To proceed with a technical replacement or refund, a technician diagnosis
+    and verification are required. If the blender fails to power on or has severe functional failure
+    within seven calendar days of delivery, it may qualify for a Dead-on-Arrival assessment. Please
+    ensure you have the original box, serial numbers matching the invoice, and all accessories ready
+    for the process. Note that certification and replacement require verification, and no
+    replacement dispatch is automatically confirmed by the policy. Kindly provide your order details
+    and proof of the issue so we can assist you further.
     Human review is required before a support specialist can make a case-specific decision. No
     refund or replacement has been approved or processed.
   Cited approved passages:
@@ -89,15 +87,15 @@ FF-2026-000132  Broken blender  [ESCALATED]
         Certification and replacement require verification; no replacement dispatch is confirmed by
         this policy.
 ==============================================================================
-FF-2026-000125  Charged three times  [ESCALATED]
+FF-2026-000158  Charged three times  [ESCALATED]
   Customer:
     You charged my card three times! Fix this now or I'm contacting my bank and a lawyer.
   Customer-facing reply:
     I understand your concern about being charged three times. According to NovaCart policy, payment
     disputes like this require specialist review and cannot be resolved directly by customer
-    service. I recommend that you provide details of the transactions so our payment specialists can
-    investigate the issue thoroughly. Meanwhile, if you believe there is an error, you may also
-    contact your bank for further assistance.
+    service. I recommend that your case be escalated to the appropriate team for investigation.
+    Meanwhile, if you have transaction details or evidence of the charges, please keep them ready
+    for the review process.
     Human review is required because this request has additional risk or verification requirements.
     No refund or replacement has been approved or processed.
   Cited approved passages:
@@ -105,16 +103,21 @@ FF-2026-000125  Charged three times  [ESCALATED]
         Buy-now-pay-later late fees charged by third-party lenders cannot be waived directly by
         NovaCart. Payment disputes require specialist review.
 ==============================================================================
-FF-2026-000139  Damaged USB-C cable  [ANSWERED]
+FF-2026-000166  Damaged USB-C cable  [ANSWERED]
   Customer:
     My USB-C cable arrived damaged and does not charge. Please refund me.
   Customer-facing reply:
-    We verified that order DEMO-41FDAB5E-001 belongs to your account and was delivered, and we
+    We checked that order DEMO-084BD9A1-001 belongs to your account and is marked delivered, and we
     received your photographs of the damaged or defective item. Your refund request of INR 299.00
-    has been accepted for processing without manual review. You will be notified when processing is
-    complete. No payment has been made yet.
+    passed our automatic eligibility checks and is queued for refund processing. This is not a
+    payment confirmation: no money has been refunded yet, and your photographs are kept for later
+    checks. You will be notified when processing is complete.
   Cited approved passages:
     - e613368ccb42a62f  02_Returns_and_Refunds_SOP.pdf, page 1
         Consumer electronics have a 7-day return window. The original box, serial numbers matching
         the invoice, and all accessories are required. A technical replacement or refund requires
         technician diagnosis and verification.
+    - ca91ca28b962d2b7  02_Returns_and_Refunds_SOP.pdf, page 1
+        Customers can initiate a return through the orders dashboard. Photographs are required for
+        damaged or defective products. Submission is not approval; eligibility and order ownership
+        must be verified.

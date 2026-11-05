@@ -1,7 +1,7 @@
 """Low-value automatic refund acceptance (no human review). Never moves money.
 
 Policy (README "Refund flow"; owner-approved amendment of the refund rules): a damaged/defective refund request
-under INR 500 is accepted for processing without human review only when
+under INR 500 is queued for refund processing without a human review step only when
 every deterministic check below passes. Otherwise the existing review flow
 applies. Photos are confirmed as genuine uploaded images, never as proof of
 the claimed defect; no payment is executed (execution_status NOT_CONFIGURED).
@@ -17,11 +17,12 @@ WINDOW_SECONDS = 365 * 24 * 3600
 AUTO_LIMIT_PER_WINDOW = 1
 
 ACCEPTED_MESSAGE = (
-    "We verified that order {order} belongs to your account and was delivered, "
-    "and we received your photographs of the damaged or defective item. Your "
-    "refund request of INR {amount:.2f} has been accepted for processing without "
-    "manual review. You will be notified when processing is complete. "
-    "No payment has been made yet."
+    "We checked that order {order} belongs to your account and is marked delivered, "
+    "and we received your photographs of the damaged or defective item. Your refund "
+    "request of INR {amount:.2f} passed our automatic eligibility checks and is queued "
+    "for refund processing. This is not a payment confirmation: no money has been "
+    "refunded yet, and your photographs are kept for later checks. You will be "
+    "notified when processing is complete."
 )
 
 

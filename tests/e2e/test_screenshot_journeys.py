@@ -255,7 +255,7 @@ def test_09_own_case_auto_refund_under_500(pages, accounts, tmp_path):
     raise_complaint(page, accounts['ravi'], category='Returns & refunds', subject='Damaged USB-C cable',
                     description='My USB-C cable arrived damaged and does not charge. Please refund me.',
                     amount=299, order='DELIVERED', photo=photo)
-    page.get_by_text(re.compile('accepted automatically')).wait_for(timeout=60000)
+    page.get_by_text(re.compile('automatic eligibility checks')).first.wait_for(timeout=60000)
     shot(page, '09_own_case_auto_refund_under_500.png')
 
 

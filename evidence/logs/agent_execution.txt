@@ -3,39 +3,39 @@ Generated 2026-11-05 from the running Docker stack (approved-only index, 14 pass
 Tickets were created by tests/e2e/test_screenshot_journeys.py with fictional accounts.
 
 ==============================================================================
-FF-2026-000122  Where is my order?  [RESOLVED]
+FF-2026-000154  Where is my order?  [RESOLVED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000150  Return my shoes  [ANSWERED]
+FF-2026-000155  Return my shoes  [ANSWERED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000124  Forgot password  [ANSWERED]
+FF-2026-000156  Forgot password  [ANSWERED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000132  Broken blender  [ESCALATED]
+FF-2026-000157  Broken blender  [ESCALATED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000125  Charged three times  [ESCALATED]
+FF-2026-000158  Charged three times  [ESCALATED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000133  Corporate gift cards  [ESCALATED]
+FF-2026-000159  Corporate gift cards  [ESCALATED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000126  Instructions test  [ESCALATED]
+FF-2026-000160  Instructions test  [ESCALATED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000139  Damaged USB-C cable  [ANSWERED]
+FF-2026-000166  Damaged USB-C cable  [ANSWERED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent
   All four agents in order: True
 ==============================================================================
-FF-2026-000140  Damaged headphones refund  [ANSWERED]
+FF-2026-000162  Damaged headphones refund  [ANSWERED]
   Observed order: QueryAgent -> KnowledgeAgent -> ResolutionAgent -> LogAgent -> SupportReviewer -> LogAgent
   All four agents in order: True
   Human-in-the-loop: SupportReviewer (AutoGen UserProxyAgent) approval recorded by LogAgent

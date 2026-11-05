@@ -15,8 +15,8 @@ What it never does
     never printed.
 
 Usage (from the project root, same Python environment as pytest)
-  python scripts\\calibrate_tc08_band.py --selftest   # free, offline, no key needed
-  python scripts\\calibrate_tc08_band.py --yes        # the single approved paid call
+  python scripts\\dev\\calibrate_tc08_band.py --selftest   # free, offline, no key needed
+  python scripts\\dev\\calibrate_tc08_band.py --yes        # the single approved paid call
 
 The annotations printed next to passage IDs are diagnostic labels only. They
 are NOT used by retrieval and must never become routing rules.
@@ -26,7 +26,7 @@ import os
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 TC08_QUERY = (

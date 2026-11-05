@@ -331,3 +331,20 @@ def test_device_charging_is_not_billing():
     assert classify_ticket('Damaged cable', 'My USB-C cable does not charge. Please refund me.')[0] == 'Returns & refunds'
     assert classify_ticket('', 'You charged my card three times!')[0] == 'Payments & billing'
     assert classify_ticket('', 'There are two charges on my statement')[0] == 'Payments & billing'
+
+
+def test_log_outcome_says_what_actually_happened():
+    import sqlite3
+    from backend.services.complaint_log import outcome_and_reason
+    c = sqlite3.connect(':memory:')
+    c.execute('CREATE TABLE audit (ticket_id TEXT, event TEXT)')
+    c.execute('CREATE TABLE auto_refund_acceptances (ticket_id TEXT)')
+    c.execute("INSERT INTO audit VALUES ('reviewed', 'ADMIN_PUBLISHED')")
+    c.execute("INSERT INTO auto_refund_acceptances VALUES ('auto')")
+    reviewed = outcome_and_reason(c, {'id': 'reviewed', 'status': 'ANSWERED'}, 'REFUND_GE_500', True)
+    assert reviewed == ('Resolved after human review',
+                        'Reviewed by support: Refund of INR 500 or more requires human review')
+    assert outcome_and_reason(c, {'id': 'auto', 'status': 'ANSWERED'}, '', True)[0].startswith('Passed automatic checks; queued for refund processing')
+    assert outcome_and_reason(c, {'id': 'open', 'status': 'ESCALATED'}, 'LEGAL', True) == (
+        'Escalated', 'Legal threat or legal action mentioned')
+    assert outcome_and_reason(c, {'id': 'plain', 'status': 'ANSWERED'}, '', False) == ('Resolved', '')
