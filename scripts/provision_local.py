@@ -1,4 +1,7 @@
 """LOCAL-ONLY demo provisioning; never use for public hosting."""
+import sys as _sys
+from pathlib import Path as _Path
+_sys.path.insert(0, str(_Path(__file__).resolve().parents[1]))  # run as: python scripts/<name>.py
 import os,sys,uuid
 from backend.db.store import init,connect
 from backend.auth.security import hash_password

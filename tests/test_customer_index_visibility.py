@@ -282,3 +282,47 @@ def test_known_internal_pages_and_addendum_do_not_reach_agent():
         _p("good", "02_Returns_and_Refunds_SOP.pdf", 1, "Fashion 14 Days"),
     ]
     assert [p["id"] for p in customer_safe_passages(raw)] == ["good"]
+
+
+# ======================================================================
+# Fresh-clone index build (scripts/rebuild_customer_index_staging.py)
+# ======================================================================
+def _fake_embedder(texts):
+    rng = np.random.default_rng(7)
+    return rng.normal(size=(len(texts), 1536)).astype('float32').tolist()
+
+
+def _load_rebuild_script():
+    from pathlib import Path as _Path
+    path = _Path(__file__).resolve().parents[1] / 'scripts' / 'rebuild_customer_index_staging.py'
+    spec = importlib.util.spec_from_file_location('rebuild_customer_index_staging', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_fresh_clone_index_build_uses_the_whole_catalog(tmp_path):
+    from backend.rag.customer_index import verify_index
+    from backend.rag.customer_policy import approved_passages
+    script = _load_rebuild_script()
+    active = tmp_path / 'local_customer_index'
+    assert script.build(_fake_embedder, active_dir=active, activate_now=True) == active
+    manifest, index = verify_index(active)
+    assert index.ntotal == len(manifest['chunks']) == len(approved_passages())
+    assert manifest['kind'] == 'approved-customer-only-v1'
+
+
+def test_rebuild_keeps_a_backup_and_build_only_mode_does_not_activate(tmp_path):
+    script = _load_rebuild_script()
+    active = tmp_path / 'local_customer_index'
+    script.build(_fake_embedder, active_dir=active, activate_now=True)
+    staged = script.build(_fake_embedder, active_dir=active, activate_now=False)
+    assert staged != active and staged.is_dir()
+    script.build(_fake_embedder, active_dir=active, activate_now=True)
+    assert any(p.name.startswith('local_customer_index.backup-') for p in tmp_path.iterdir())
+
+
+def test_rebuild_script_has_no_hardcoded_passage_count():
+    from pathlib import Path as _Path
+    source = (_Path(__file__).resolve().parents[1] / 'scripts' / 'rebuild_customer_index_staging.py').read_text(encoding='utf-8')
+    assert '!= 13' not in source and '!= 14' not in source

@@ -2,7 +2,7 @@ FIXFLOW AI - OFFLINE REGRESSION RESULTS
 Run 2026-11-05 on the committed code, Python 3.11, from the project root.
 
 Command: python -m pytest -q
-Result:  908 passed, 36 skipped in 238.42s
+Result:  911 passed, 36 skipped in 226.21s
          Skipped = 17 opt-in live AI tests + 19 opt-in Playwright browser tests
          (they need FIXFLOW_RUN_* flags and are not counted as passes).
          tests/conftest.py forces dummy API keys, an unroutable OpenAI address and

@@ -110,66 +110,73 @@ flowchart TD
 - **SQLite** stores ticket and review state, while the separate worker handles AI processing and recovery. The admin interface supports review, publication, and audit inspection.
 - The **frontend, API, and worker run as separate local processes**. Do not use the isolated test database for normal application work.
 
-## Local setup — Windows CMD
+## Setup (Windows, from a fresh clone)
 
-Requirements: Python 3.11, the backend and frontend dependency files (`backend/requirements.txt`, `frontend/requirements.txt`), and the configured local environment variables. Use the project's existing virtual environment if it is already working; do not recreate it unnecessarily.
+Requirements: Python 3.11, an OpenAI API key, and Docker Desktop if you want the one-command stack.
+
+### 1. Environment and dependencies
 
 ```cmd
+git clone https://github.com/poovizhimangaipatchirajan/AI-Customer-Support-Multigent--Autogen.git fixflow-ai
 cd fixflow-ai
+python -m venv venv
 venv\Scripts\activate
-
 pip install -r backend/requirements.txt
 pip install -r frontend/requirements.txt
 copy .env.example .env
 ```
 
-Dependencies are split per service (there is no root `requirements.txt`): `backend/requirements.txt` covers the FastAPI API, AutoGen agents, RAG and the worker; `frontend/requirements.txt` covers the Streamlit UI. Each Docker image installs its own file.
+Edit `.env` and set `OPENAI_API_KEY` (and the Gmail SMTP values if you want real verification emails). Dependencies are split per service (there is no root `requirements.txt`): `backend/requirements.txt` covers the FastAPI API, AutoGen agents, RAG and the worker; `frontend/requirements.txt` covers the Streamlit UI. Each Docker image installs its own file. The frontend reads the backend address from `FIXFLOW_API_URL`; no backend URL is hardcoded. **Never commit `.env`, databases or credentials.**
 
-Edit `.env` and set `OPENAI_API_KEY` (and the SMTP values for email verification). The frontend reads the backend address from `FIXFLOW_API_URL` (default `http://127.0.0.1:8000`); no backend URL is hardcoded. `backend/requirements.txt` and `frontend/requirements.txt` are the per-image lists used by Docker.
+### 2. Build the approved policy index (once)
 
-Keep API keys and credentials in local environment configuration. **Never commit `.env`, SQLite databases, local mailbox contents, or credentials.**
-
-### Start the API
-
-In terminal 1:
+The FAISS index is not stored in Git. Build it from the approved customer passages (14 excerpts of the SOP PDFs in `policies/`); this makes one small embedding call (about one cent):
 
 ```cmd
-cd fixflow-ai
+python scripts/rebuild_customer_index_staging.py --activate
+```
+
+It creates `local_customer_index/`, verifies it, and keeps any previous index as a backup. Only approved customer-visible text is embedded; the internal escalations SOP is never indexed.
+
+### 3. Create an administrator (local demo)
+
+```cmd
+python scripts/create_admin.py
+```
+
+Enter a test email and a 12+ character password. Customers register in the app (or use the fictional sample orders on the Account page); `FIXFLOW_LOCAL_DEMO=1` in `.env` enables these local-demo helpers and must be `0` on any public deployment.
+
+### 4a. Run with Docker (recommended)
+
+```cmd
+docker compose up -d --build
+```
+
+Open **http://127.0.0.1:8501**. Compose starts the API (port 8000), the background worker and the Streamlit frontend, mounts the index read-only and stores data under `docker_data/`. To create the admin inside Docker instead of step 3: `docker compose exec api python scripts/create_admin.py`.
+
+### 4b. Or run the three processes locally
+
+```cmd
+:: terminal 1 - API
 venv\Scripts\activate
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
-```
 
-### Start the frontend
-
-From the repository root, `streamlit run app.py` starts the UI with one command. The root `app.py` is a thin launcher for the Streamlit UI in `frontend/app.py`.
-
-In terminal 2:
-
-```cmd
-cd fixflow-ai
-venv\Scripts\activate
-streamlit run app.py --server.address 127.0.0.1 --server.port 8501
-```
-
-Open **http://127.0.0.1:8501**.
-
-### Start the background worker
-
-In terminal 3, activate the same virtual environment and ensure the required model, retrieval, and integration settings are available:
-
-```cmd
-cd fixflow-ai
+:: terminal 2 - background worker (runs the four AutoGen agents)
 venv\Scripts\activate
 python -m backend.worker.main
+
+:: terminal 3 - Streamlit UI (one command, from the project root)
+venv\Scripts\activate
+streamlit run app.py
 ```
 
-For a fresh installation, build the policy index using the project's existing configured ingestion procedure before expecting RAG answers. Do not rebuild or overwrite an already validated local index unnecessarily.
+The root `app.py` is a thin launcher for the Streamlit UI in `frontend/app.py`. Open **http://127.0.0.1:8501**.
 
 ## Local test validation
 
 ### Test layout
 
-`tests/` holds **23 feature-grouped files** (908 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+`tests/` holds **23 feature-grouped files** (911 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
 
 | File | Covers |
 | --- | --- |
@@ -200,7 +207,7 @@ $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/te
 
 | Batch (run 2026-11-05) | Result |
 | --- | --- |
-| Full offline suite | **908 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Full offline suite | **911 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
 | Approved-only lane | **35 passed** |
 
 ### Live acceptance (opt-in, uses OpenAI)

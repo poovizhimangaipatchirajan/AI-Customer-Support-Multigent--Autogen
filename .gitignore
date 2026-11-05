@@ -111,3 +111,4 @@ pytest_*.txt
 
 # Superseded screenshots kept locally only
 evidence/screenshots/old/
+local_customer_index.staging-*/
