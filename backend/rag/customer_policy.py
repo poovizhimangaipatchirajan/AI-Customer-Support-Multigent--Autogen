@@ -8,6 +8,25 @@ import hashlib
 # (source filename, original PDF page, customer-safe policy excerpt)
 APPROVED_EXCERPTS = (
     (
+        "01_Shipping_and_Delivery_SOP.pdf", 3,
+        "If an order is marked delivered but you have not received it, first check "
+        "your mailroom, front desk, building concierge, and other authorized "
+        "household recipients. If it is still missing, contact NovaCart support "
+        "with your order details for identity and delivery verification and "
+        "investigation. A refund or replacement is not automatically guaranteed."
+    ),
+    (
+        # Customer-safe wording of the SOP p1 compliance rule (in transit within
+        # the promised EDD is not lost; no compensation) and the p2 stalled-
+        # consignment investigation. Approved by the project owner, 2026-11-05.
+        "01_Shipping_and_Delivery_SOP.pdf", 1,
+        "If your order has not arrived but is still in transit and within its "
+        "estimated delivery date, it is not treated as lost and no compensation "
+        "applies at that stage. If it is past the estimated delivery date, contact "
+        "NovaCart support with your order details for delivery verification and "
+        "investigation."
+    ),
+    (
         "02_Returns_and_Refunds_SOP.pdf", 1,
         "Fashion and apparel have a 14-day return window if unworn and unwashed, "
         "with brand tags intact and original packaging. Eligible remedies include "
@@ -112,3 +131,66 @@ def is_approved_customer_passage(doc):
         doc.get(field) == expected[field]
         for field in ("source", "page", "chunk", "text", "version", "visibility", "approval")
     )
+
+
+def approved_mfa_guidance(query):
+    """Return None for unrelated queries, or approved evidence for MFA queries.
+
+    Authorization hierarchy is an internal procedure, not customer-approved
+    evidence. Never substitute unrelated search results for missing guidance.
+    """
+    import re
+    if not isinstance(query, str):
+        return None
+    q = query.lower()
+    mfa = bool(re.search(r"\bmfa\b|multi.factor|two.factor|2fa|authenticator|authentication app", q))
+    # Routine forgotten-password/login-recovery questions have an approved
+    # customer-facing identity-verification excerpt. Provide that excerpt in
+    # either retrieval mode rather than depending on an unrelated dense match.
+    # This does not authorize a reset or expose internal recovery procedures.
+    password_recovery = bool(re.search(
+        r"\b(?:forgot|forgotten|reset|recover|lost|can.t|cannot|unable|trouble)\b"
+        r".{0,90}\b(?:password|log[ -]?in|sign[ -]?in|account access)\b"
+        r"|\b(?:password|log[ -]?in|sign[ -]?in)\b.{0,90}"
+        r"\b(?:forgot|forgotten|reset|recover|lost|can.t|cannot|unable|trouble)\b",
+        q,
+    ))
+    if not mfa and not password_recovery:
+        return None
+    # Internal authorization procedures have no customer-approved passage.
+    if re.search(r"hierarch|authorization level|approval chain|override procedure|internal procedure", q):
+        return []
+    # Only general identity-verification guidance is approved; no reset steps.
+    return [p for p in approved_passages()
+            if p["source"] == "04_Account_and_Login_SOP.pdf"
+            and "identity verification" in p["text"].lower()]
+
+
+def approved_topic_guidance(query):
+    """Return None for ordinary queries, or a strictly curated topic result.
+
+    [] is intentional: no supported delivery SLA exists in the approved
+    customer excerpts. Never substitute return or warranty windows.
+    """
+    import re
+    if not isinstance(query, str):
+        return None
+    q = query.lower()
+    # Only the delivered-but-not-received passage answers that question; the
+    # in-transit passage covers orders that have not been marked delivered.
+    shipping = [p for p in approved_passages()
+                if p["source"] == "01_Shipping_and_Delivery_SOP.pdf"
+                and "marked delivered" in p["text"]]
+    warranty = [p for p in approved_passages()
+                if p["source"] == "03_Product_and_Warranty_SOP.pdf"
+                and "30-day platform assurance" in p["text"]]
+    if re.search(r"\b(deliver(?:y|ed)?|shipping|shipment|package|parcel)\b", q):
+        if (re.search(r"marked as delivered|marked delivered|shows delivered|says delivered|delivered but|delivered.*not (?:been )?received|false delivery", q)
+                and re.search(r"not received|haven.t received|didn.t receive|missing|false delivery|not (?:been )?received", q)):
+            return shipping
+        if re.search(r"timeframe|time frame|how long|delivery time|delivery estimate|delivery window|standard delivery|shipping time|days to deliver|when (?:will|does).*arrive", q):
+            return []
+    if re.search(r"\b(warranty|platform assurance|manufacturer warranty)\b", q):
+        if re.search(r"standard|cover|included|manufacturer|platform assurance", q) and not re.search(r"novacare|extended|optional|accidental", q):
+            return warranty
+    return None

@@ -97,7 +97,18 @@ def upload(ticket_id: str, body: EvidenceIn, user=Depends(principal)):
         except Exception:
             path.unlink(missing_ok=True)
             raise
-    return {'id': eid, 'filename': name, 'byte_size': len(data), 'stored': True}
+    # Photos arriving after the agents finished may complete a low-value
+    # automatic acceptance. Serialized; any failure leaves the ticket as is.
+    auto_accepted = False
+    try:
+        from backend.services.auto_refund import accept_after_evidence
+        with connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            auto_accepted = accept_after_evidence(db, ticket_id)
+    except Exception:
+        auto_accepted = False
+    return {'id': eid, 'filename': name, 'byte_size': len(data), 'stored': True,
+            'auto_refund_accepted': auto_accepted}
 
 @router.get('/tickets/{ticket_id}/evidence')
 def list_evidence(ticket_id: str, user=Depends(principal)):

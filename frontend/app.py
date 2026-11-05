@@ -8,7 +8,9 @@ import requests
 from datetime import datetime
 from pathlib import Path
 import streamlit as st
-from frontend.api_client import call, BASE
+from frontend.api_client import call, BASE, ApiError, DEFAULT_MESSAGES, SERVER_ERROR
+from frontend.ticket_review_display import review_message
+from frontend.refund_decision_draft import decision_response_draft
 
 st.set_page_config(page_title="FixFlow AI | NovaCart Support", page_icon="🛒", layout="wide", initial_sidebar_state="expanded")
 logout_warning = st.session_state.pop("logout_warning", None)
@@ -43,7 +45,7 @@ apply_local_banner_images()
 STATUS = {"QUEUED": ("Queued", "blue"), "PROCESSING": ("AI processing", "blue"), "ANSWERED": ("Answered", "green"), "ESCALATED": ("Human review", "red"), "RESOLVED": ("Resolved", "green"), "AWAITING_CUSTOMER": ("Awaiting customer", "amber")}
 POLICY_NAMES = {"shipping.md": "Shipping Policy", "refunds.md": "Refund & Return Policy", "products.md": "Product Information Policy", "account.md": "Account & Login Policy"}
 
-for name, default in {"token": None, "page": "Home", "ticket_id": None, "complaint_step": 1, "draft": {}, "review_tab": "Conversation"}.items():
+for name, default in {"token": None, "page": "Home", "ticket_id": None, "complaint_step": 1, "draft": {}, "review_tab": "Conversation", "complaint_uploads": []}.items():
     if name not in st.session_state:
         st.session_state[name] = default
 
@@ -68,15 +70,31 @@ def pill(status):
     return f'<span class="ff-pill ff-{tone}">{safe(label)}</span>'
 
 
-def api(method, path, **kwargs):
+def api(method, path, *, expected=None, **kwargs):
+    """Call the backend and show one user-appropriate message on failure.
+
+    expected maps HTTP statuses that are a normal outcome for this call to the
+    value returned instead (e.g. {404: {}} for "nothing recorded yet"); those
+    show no message. Every other failure returns None.
+    """
     try:
         return call(method, path, st.session_state.token, **kwargs)
+    except ApiError as exc:
+        if expected and exc.status in expected:
+            return expected[exc.status]
+        if exc.status == 401 and st.session_state.token:
+            # Expired or revoked session: sign out locally and return to login.
+            st.session_state.token = None
+            st.session_state.ticket_id = None
+            st.session_state["logout_warning"] = DEFAULT_MESSAGES[401]
+            st.rerun()
+        if exc.status == 409:
+            st.warning(f"{exc.message} Refresh the page to load the latest version, then try again.")
+        else:
+            st.error(exc.message)
+        return None
     except Exception:
-        st.error(
-            "We couldn't complete your request. "
-            "The service may be temporarily unavailable. "
-            "Please try again shortly."
-        )
+        st.error(SERVER_ERROR)
         return None
 
 
@@ -290,18 +308,30 @@ def complaint():
               description = st.text_area("Description", value=st.session_state.draft.get("description", ""), height=170, max_chars=5000)
               amount = st.number_input("Claimed amount (₹, optional)", min_value=0.0, step=1.0, value=float(st.session_state.draft.get("amount", 0)))
               related_order = st.selectbox("Related order (optional)", options)
-              st.caption("Please don't include passwords, payment card details, or other secrets. You can attach supporting photos after submitting the complaint.")
+              st.caption("Please don't include passwords, payment card details, or other secrets.")
+              evidence_files = st.file_uploader("Supporting evidence (optional)", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True, key="complaint_pre_evidence")
+              st.caption("Up to five JPEG, PNG or PDF files, maximum 2 MB each. Evidence is attached when you submit.")
               next_step = st.form_submit_button("Next: review complaint →", type="primary")
         if next_step:
             if len(subject.strip()) < 3 or len(description.strip()) < 10:
                 st.warning("Subject must be at least 3 characters; description at least 10.")
+            elif len(evidence_files) > 5 or any(len(f.getvalue()) > 2 * 1024 * 1024 for f in evidence_files):
+                st.error("Select no more than five evidence files, each at most 2 MB.")
             else:
+                st.session_state.complaint_uploads = [
+                    {"filename": f.name, "media_type": f.type, "content": f.getvalue()}
+                    for f in evidence_files
+                ]
                 st.session_state.draft = {"category": category, "subject": subject.strip(), "description": description.strip(), "amount": amount, "related_order": related_order.split(" · ")[0] if related_order != "No related order" else None}
                 st.session_state.complaint_step = 2
                 st.rerun()
     elif st.session_state.complaint_step == 2:
         d = st.session_state.draft
         st.markdown(f'<div class="ff-panel"><b>{safe(d["subject"])}</b><p class="ff-muted">{safe(d["category"])} · Claimed amount: {"₹" + format(d["amount"], ",.2f") if d["amount"] else "Not specified"}</p><p>{safe(d["description"])}</p></div>', unsafe_allow_html=True)
+        attachments = st.session_state.get("complaint_uploads", [])
+        st.caption(f"Supporting evidence selected: {len(attachments)} file(s) (optional).")
+        for attachment in attachments:
+            st.caption("📎 " + attachment["filename"])
         left, right = st.columns(2)
         with left:
             if st.button("← Edit details", use_container_width=True):
@@ -311,38 +341,97 @@ def complaint():
             if st.button("Submit complaint", type="primary", use_container_width=True):
                 result = api("POST", "/tickets", json={"subject": d["subject"], "description": d["description"], "claimed_amount": d["amount"] or None, "order_code": d.get("related_order")})
                 if result:
-                    st.session_state.complaint_step = 3
                     st.session_state.ticket_id = result.get("id")
+                    st.session_state.complaint_upload_failures = []
+                    for attachment in attachments:
+                        media = attachment["media_type"]
+                        if media not in ("image/jpeg", "image/png", "application/pdf"):
+                            st.session_state.complaint_upload_failures.append(attachment)
+                            continue
+                        uploaded = api("POST", f"/tickets/{st.session_state.ticket_id}/evidence", json={
+                            "filename": attachment["filename"], "media_type": media,
+                            "content_base64": base64.b64encode(attachment["content"]).decode("ascii")
+                        })
+                        if not uploaded:
+                            st.session_state.complaint_upload_failures.append(attachment)
+                    st.session_state.complaint_uploads = []
+                    st.session_state.complaint_step = 3
                     st.rerun()
     else:
         st.success("Your complaint was submitted successfully.")
         st.caption("Track the status from My tickets. Processing happens in the background.")
-        st.caption("Optional supporting evidence: JPEG, PNG or PDF; maximum 2 MB each, up to 5 files per ticket.")
-        evidence_files = st.file_uploader("Attach evidence", type=["jpg", "jpeg", "png", "pdf"], accept_multiple_files=True)
-        if st.button("Upload evidence"):
-            if not evidence_files:
-                st.warning("Select a file first.")
-            elif len(evidence_files) > 5:
-                st.error("Maximum five files per ticket.")
-            else:
-                for uploaded in evidence_files:
-                    content = uploaded.getvalue()
-                    if len(content) > 2 * 1024 * 1024:
-                        st.error(f"{uploaded.name}: exceeds 2 MB")
-                        continue
-                    media = {"image/jpeg": "image/jpeg", "image/png": "image/png", "application/pdf": "application/pdf"}.get(uploaded.type)
-                    if not media:
-                        st.error(f"{uploaded.name}: unsupported file type")
-                        continue
-                    response = api("POST", f"/tickets/{st.session_state.ticket_id}/evidence", json={"filename": uploaded.name, "media_type": media, "content_base64": base64.b64encode(content).decode("ascii")})
-                    if response:
-                        st.success(f"Uploaded {uploaded.name}")
+        failures = st.session_state.get("complaint_upload_failures", [])
+        if failures:
+            st.warning(f"Complaint created, but {len(failures)} evidence file(s) were not attached. Retry below or use the ticket evidence section.")
+            if st.button("Retry failed evidence uploads"):
+                remaining = []
+                for attachment in failures:
+                    response = api("POST", f"/tickets/{st.session_state.ticket_id}/evidence", json={
+                        "filename": attachment["filename"], "media_type": attachment["media_type"],
+                        "content_base64": base64.b64encode(attachment["content"]).decode("ascii")
+                    })
+                    if not response:
+                        remaining.append(attachment)
+                st.session_state.complaint_upload_failures = remaining
+                st.rerun()
+        else:
+            st.caption("All selected evidence files were attached, or no evidence was selected.")
         if st.button("View ticket →", type="primary"):
             go("Ticket", st.session_state.ticket_id)
         if st.button("Submit another complaint"):
             st.session_state.complaint_step = 1
             st.session_state.draft = {}
+            st.session_state.complaint_uploads = []
+            st.session_state.complaint_upload_failures = []
             go("New complaint")
+
+
+def agent_progress(data):
+    """Automatically poll real persisted agent events; never simulate completion."""
+    ticket_id = data.get("id")
+    if not ticket_id:
+        return
+    progress = api("GET", f"/tickets/{ticket_id}/agent-progress")
+    if progress is None:
+        return
+    events = progress.get("events", [])
+    names = ("QueryAgent", "KnowledgeAgent", "ResolutionAgent", "LogAgent")
+    completed = {e.get("agent") for e in events if e.get("event") == "MESSAGE_OBSERVED"}
+    current_status = progress.get("status")
+    st.markdown("#### AI agent workflow")
+    for name in names:
+        if name in completed:
+            st.markdown(f"✅ **{name}** · Response observed")
+        elif current_status == "PROCESSING" and name == next((n for n in names if n not in completed), None):
+            st.markdown(f"🔵 **{name}** · Awaiting response")
+        else:
+            st.markdown(f"⚪ **{name}** · Waiting")
+    review = progress.get("human_review")
+    if review:
+        # Human-in-the-loop step (AutoGen UserProxyAgent). The approval itself
+        # is final when the specialist publishes; this shows its AutoGen record.
+        state = review.get("status")
+        if state == "DONE":
+            st.markdown("✅ **SupportReviewer** (human) · Approved and recorded by LogAgent")
+        elif state == "FAILED":
+            st.markdown("✅ **SupportReviewer** (human) · Approved; automatic recording failed and was audited")
+        else:
+            st.markdown("🔵 **SupportReviewer** (human) · Approved; recording in progress")
+    st.caption("Progress reflects observed agent messages, not final policy approval.")
+    if current_status in ("QUEUED", "PROCESSING"):
+        st.caption("Checking for agent updates automatically every 2 seconds.")
+    # A fragment rerun updates only the progress panel. On terminal state,
+    # refresh the whole ticket so its response, evidence and review status agree.
+    if current_status != data.get("status"):
+        st.rerun()
+
+
+# Fragment polling is supported in modern Streamlit. The decorator is intentionally
+# attached to the smallest possible UI region to avoid resetting upload forms.
+if hasattr(st, "fragment"):
+    agent_progress_live = st.fragment(run_every="2s")(agent_progress)
+else:
+    agent_progress_live = agent_progress
 
 
 def processing_status(data):
@@ -350,6 +439,8 @@ def processing_status(data):
     title(public_id(data), f"{data.get('subject', '')} · Submitted {stamp(data.get('created_at'))}")
     st.markdown(pill(status), unsafe_allow_html=True)
     st.write("")
+    if status in ("QUEUED", "PROCESSING", "ANSWERED", "ESCALATED"):
+        agent_progress_live(data)
     if status in ("QUEUED", "PROCESSING"):
         stage = 1 if status == "QUEUED" else 2
         st.progress(stage / 3, text="Received → Queued → AI processing → Response")
@@ -357,7 +448,7 @@ def processing_status(data):
         if st.button("Refresh status", type="primary"):
             st.rerun()
     elif status == "ESCALATED":
-        st.warning("This request requires human review. No refund or payment has been executed.")
+        st.warning(review_message(data))
     elif status in ("ANSWERED", "RESOLVED"):
         st.success("A response is available below.")
 
@@ -389,6 +480,8 @@ def evidence_section(ticket_id: str, *, admin: bool = False, resolved: bool = Fa
         return
     if not evidence:
         st.info("No evidence files are attached to this ticket yet.")
+    if evidence and not admin:
+        st.caption("Evidence received. Attachments remain subject to verification; uploading does not automatically approve a remedy or close human review.")
     for item in evidence:
         eid = item["id"]
         st.write(f"📎 {item['original_name']} · {item['byte_size']:,} bytes")
@@ -538,11 +631,31 @@ def ticket_detail(admin=False):
             st.subheader("Edit and approve response")
             drafts = data.get("drafts", [])
             initial = drafts[-1].get("draft", "") if drafts else ""
+            # A recorded refund decision takes precedence over the provisional AI
+            # escalation draft. Never treat review approval as payment execution.
+            # 404 = this ticket has no refund review (a normal state, not an error).
+            refund_review = api("GET", f"/admin/refund-reviews/{tid}", expected={404: {}})
+            review_unavailable = refund_review is None
+            if review_unavailable:
+                # Publishing without the review state could overlook a recorded decision.
+                st.warning("Refund review status could not be loaded, so publishing is paused. Refresh the page to try again.")
+                refund_review = {}
+            elif not refund_review:
+                st.caption("No refund review is linked to this ticket. This reply is a support response only.")
+            decided = refund_review and refund_review.get("status") in ("APPROVED", "REJECTED")
+            if decided:
+                initial = decision_response_draft(refund_review)
+                st.info("Refund review decision recorded. Review and customize the message before sending. No payment is executed here.")
+            elif refund_review and refund_review.get("status") == "PENDING":
+                st.caption("Refund review is pending. The draft below is preliminary; no refund decision has been recorded.")
+            # Version-specific key prevents a prior draft from persisting after a
+            # decision or ticket update, while retaining edits on ordinary reruns.
+            draft_key = f"review_response_{tid}_{data['version']}_{refund_review.get('version', 0) if refund_review else 0}"
             with st.form(f"admin_review_{tid}"):
-                response = st.text_area("Reviewed response to customer", value=initial, height=200)
+                response = st.text_area("Reviewed response to customer", value=initial, height=200, key=draft_key)
                 confirm = st.checkbox("I reviewed this response. Publishing sends a message only; it does not issue a refund.")
-                publish = st.form_submit_button("Approve and send", type="primary")
-            if publish:
+                publish = st.form_submit_button("Approve and send", type="primary", disabled=review_unavailable)
+            if publish and not review_unavailable:
                 if not confirm or len(response.strip()) < 2:
                     st.warning("Enter a reviewed response and confirm before publishing.")
                 else:
@@ -596,6 +709,10 @@ def refund_decision_summary(ticket_id: str):
         st.success("Refund review approved for further processing. No refund or payment has been executed.")
     elif status == "REJECTED":
         st.warning("Refund review rejected. No refund or payment has been executed.")
+    elif status == "AUTO_ACCEPTED":
+        st.success(f"Refund request of ₹{float(review.get('amount') or 0):,.2f} accepted automatically: "
+                   "order ownership and delivery verified, photographs received. "
+                   "No payment has been executed yet.")
     if review.get("decided_at"):
         st.caption(f"Decision recorded: {stamp(review['decided_at'])}")
     st.caption(f"Payment execution: {review.get('execution_status', 'NOT_CONFIGURED')}. Ticket status is managed separately.")
@@ -695,9 +812,25 @@ def refund_reviews_page():
                 st.caption(f"Execution status: {item['execution_status']} — no payment executed")
 
 
+URGENCY_SCORE = {"low": 1, "medium": 2, "high": 3}
+
+
+def average_urgency(complaint_rows):
+    """Mean of classified urgencies (Low=1, Medium=2, High=3), e.g. '1.8 · Medium'."""
+    scores = [URGENCY_SCORE[str(r.get("urgency") or "").strip().lower()]
+              for r in complaint_rows or []
+              if str(r.get("urgency") or "").strip().lower() in URGENCY_SCORE]
+    if not scores:
+        return "—"
+    mean = sum(scores) / len(scores)
+    label = min(URGENCY_SCORE, key=lambda k: abs(URGENCY_SCORE[k] - mean)).title()
+    return f"{mean:.1f} · {label}"
+
+
 def admin_dashboard(queue, tickets, complaint_rows):
-    """Overview of the authenticated admin ticket listing, plus review queue."""
+    """Authenticated admin overview; charts use the existing API responses."""
     from collections import Counter
+    import altair as alt
 
     title("Admin dashboard", "NovaCart support operations · Human approval workspace")
     statuses = Counter(str(t.get("status") or "UNKNOWN").upper() for t in tickets)
@@ -705,43 +838,97 @@ def admin_dashboard(queue, tickets, complaint_rows):
     resolved = statuses["RESOLVED"]
     escalated = statuses["ESCALATED"]
     pending = sum(v for k, v in statuses.items() if k in {"OPEN", "PENDING", "QUEUED", "PROCESSING"})
-    first = st.columns(5)
+    urgency_value, _, urgency_word = average_urgency(complaint_rows).partition(" · ")
+    first = st.columns(6)
     for col, label, value, symbol, tone in zip(
         first,
-        ("Total tickets", "AI answered", "Escalated", "Resolved", "Pending"),
-        (len(tickets), answered, escalated, resolved, pending),
-        ("▤", "✦", "⚑", "✓", "◷"),
-        ("blue", "blue", "red", "blue", "amber"),
+        ("Total tickets", "AI answered", "Escalated", "Resolved", "Pending",
+         f"Avg urgency · {urgency_word}" if urgency_word else "Avg urgency"),
+        (len(tickets), answered, escalated, resolved, pending, urgency_value),
+        ("▤", "✦", "⚑", "✓", "◷", "▲"),
+        ("blue", "blue", "red", "blue", "amber", "amber"),
     ):
         with col:
             metric_card(label, value, symbol, tone)
 
-    st.markdown("#### Ticket status overview")
     if tickets:
-        status_rows = [{"Status": status, "Tickets": count}
-                       for status, count in sorted(statuses.items())]
-        st.dataframe(status_rows, use_container_width=True, hide_index=True)
-        st.markdown("#### Tickets by category")
-        # The authenticated complaint-log endpoint supplies the same category
-        # displayed in the rubric CSV. Match by public ticket ID, never by subject.
+        # Preserve the authenticated complaint-log mapping: match by public ticket
+        # ID, never by subject or private customer information.
         classifications = {
-            str(row.get("ticket_id") or "").strip(): (
-                str(row.get("category · urgency · sentiment") or "")
-                .split(" · ", 1)[0]
-                .strip()
-            )
+            str(row.get("ticket_id") or "").strip(): str(row.get("category") or "").strip()
             for row in complaint_rows
         }
         categories = Counter(
-            classifications.get(public_id(t))
-            or "Not classified"
+            classifications.get(public_id(t)) or "Not classified"
             for t in tickets
         )
-        st.dataframe(
-            [{"Category": name, "Tickets": count} for name, count in
-             sorted(categories.items(), key=lambda pair: (-pair[1], pair[0]))],
-            use_container_width=True, hide_index=True,
-        )
+
+        status_labels = {
+            "ANSWERED": "Answered", "ESCALATED": "Escalated",
+            "RESOLVED": "Resolved", "QUEUED": "Queued",
+            "PROCESSING": "AI processing", "AWAITING_CUSTOMER": "Awaiting customer",
+            "OPEN": "Open", "PENDING": "Pending",
+        }
+        status_colors = {
+            "ANSWERED": "#16a34a", "ESCALATED": "#ef4444",
+            "RESOLVED": "#8b5cf6", "QUEUED": "#3b82f6",
+            "PROCESSING": "#06b6d4", "AWAITING_CUSTOMER": "#f59e0b",
+            "OPEN": "#64748b", "PENDING": "#eab308",
+        }
+        status_rows = [
+            {"Status": status_labels.get(code, code.replace("_", " ").title()),
+             "Tickets": count, "Code": code}
+            for code, count in statuses.items()
+        ]
+        status_domain = [row["Status"] for row in status_rows]
+        status_range = [status_colors.get(row["Code"], "#94a3b8") for row in status_rows]
+        category_rows = [
+            {"Category": name, "Tickets": count}
+            for name, count in sorted(categories.items(), key=lambda pair: (-pair[1], pair[0]))
+        ]
+
+        left, right = st.columns(2, gap="large")
+        with left:
+            st.markdown("#### Ticket status")
+            donut = (
+                alt.Chart(alt.Data(values=status_rows))
+                .mark_arc(innerRadius=77, outerRadius=120)
+                .encode(
+                    theta=alt.Theta("Tickets:Q", stack=True),
+                    color=alt.Color(
+                        "Status:N",
+                        scale=alt.Scale(domain=status_domain, range=status_range),
+                        legend=alt.Legend(title=None, orient="bottom"),
+                    ),
+                    tooltip=[alt.Tooltip("Status:N"), alt.Tooltip("Tickets:Q")],
+                )
+            )
+            center_label = (
+                alt.Chart(alt.Data(values=[{"Total": str(len(tickets))}]))
+                .mark_text(fontSize=30, fontWeight="bold")
+                .encode(text="Total:N")
+            )
+            st.altair_chart(
+                alt.layer(donut, center_label).properties(height=320),
+                use_container_width=True,
+            )
+        with right:
+            st.markdown("#### Tickets by category")
+            bars = (
+                alt.Chart(alt.Data(values=category_rows))
+                .mark_bar(cornerRadiusEnd=5, color="#6366f1")
+                .encode(
+                    x=alt.X("Tickets:Q", title="Tickets", axis=alt.Axis(tickMinStep=1)),
+                    y=alt.Y(
+                        "Category:N", sort="-x", title=None,
+                        axis=alt.Axis(labelLimit=185),
+                    ),
+                    tooltip=[alt.Tooltip("Category:N"), alt.Tooltip("Tickets:Q")],
+                )
+                .properties(height=max(280, 42 * len(category_rows)))
+            )
+            st.altair_chart(bars, use_container_width=True)
+
         st.markdown("#### Recent tickets")
         ticket_list(tickets[:5], admin=True, key_prefix="admin_recent")
     else:
@@ -877,7 +1064,7 @@ def main():
                          (public_id(t) + " " + (t.get("subject") or "")).casefold()], admin=True, key_prefix="admin_search")
         elif page == "Refund reviews":
             refund_reviews_page()
-        elif page in ("Audit logs"):
+        elif page == "Audit logs":
             title("Complaint log", "Section 7 complaint log · Admin-only")
             rows = api("GET", "/admin/rubric/complaints")
             if rows is not None:

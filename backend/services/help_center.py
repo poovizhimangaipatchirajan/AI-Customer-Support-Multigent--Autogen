@@ -3,16 +3,17 @@
 Conservative, extractive answers: unsupported benefits are never inferred from
 semantically adjacent passages. Case-specific decisions belong to tickets.
 """
+import logging
 import re
 from functools import lru_cache
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from backend.auth.security import principal
 from backend.rag.customer_runtime import create_customer_retriever
 from backend.services.risk import screen
-from backend.rag.customer_policy import is_approved_customer_passage
+from backend.rag.customer_policy import is_approved_customer_passage, approved_passages
 from backend.rag.customer_runtime import customer_mode
 
 router = APIRouter(prefix='/help', tags=['Help Center'])
@@ -252,21 +253,95 @@ def relevant_department_sources(question):
     }
 
 
+def _conditional_evidence_supported(question, passage):
+    """Check a policy's explicit IF premise without assuming case facts.
+
+    Uses passage-derived distinctive terms, not hard-coded customer questions,
+    department names or policy identifiers. A match means only that the
+    premise was mentioned; it does not verify the customer's claim.
+    """
+    match = re.match(r"\s*if\s+(.+?)(?:,|\bbut\b|\bthen\b)",
+                     passage or '', flags=re.I)
+    if not match:
+        return True, None
+    premise = match.group(1).strip()
+    premise_terms = keywords(premise)
+    if not premise_terms:
+        return False, premise
+    # Ignore common corpus-wide words (e.g. 'order') that cannot establish
+    # the specific condition. This is an evidence-driven IDF filter.
+    catalog = approved_passages()
+    counts = {token: sum(token in keywords(d['text']) for d in catalog)
+              for token in premise_terms}
+    rarest = min(counts.values())
+    distinctive = {t for t in premise_terms if counts[t] == rarest}
+    return bool(distinctive & keywords(question)), premise
+
+
+def _citation(doc):
+    return {'document': doc['source'], 'title': TITLES[doc['source']],
+            'page': doc.get('page'), 'chunk_id': doc['id'],
+            'version': doc.get('version', '')}
+
+
+def _ticket_required():
+    return {
+        'status': 'ticket_required',
+        'answer': ('This appears to involve a specific order, refund request, '
+                   'payment dispute, or account. Please create a support '
+                   'ticket so the appropriate review and privacy checks apply.'),
+        'sources': [],
+    }
+
+
+def _unverified_order_tracking(question):
+    """Personal tracking/delay requests are not delivered-not-received claims.
+
+    Without verified order status, no approved shipping excerpt can establish
+    whether a parcel is delayed, in transit, or marked delivered.
+    """
+    q = question.lower()
+    personal_order = bool(re.search(
+        r"\b(?:where is my order|track my (?:order|parcel|package|shipment)|"
+        r"my (?:order|parcel|package|shipment)|i (?:ordered|purchased))\b", q))
+    tracking_or_delay = bool(re.search(
+        r"\b(?:where is my order|track(?:ing)?|status|late|delayed?|overdue|"
+        r"arriv(?:e|ed|al)|supposed to arrive|not arrived|hasn.t arrived)\b", q))
+    explicitly_delivered = bool(re.search(
+        r"\b(?:marked|says|shows|status is)\s+(?:as\s+)?delivered\b|"
+        r"\bdelivered\s+but\b", q))
+    return personal_order and tracking_or_delay and not explicitly_delivered
+
+
 def answer_question(question: str, search=None):
     q = question.strip()
-    if (PERSONAL.search(q) or screen(q) or
-            re.search(r'\b(?:order|ticket)[-\s#:]*\d{4,}\b', q, re.I)):
+    # Risky actions, fraud/payment/legal flags, and explicit identifiers must
+    # not trigger even read-only evidence lookup in the self-service endpoint.
+    if (screen(q) or re.search(r'\b(?:order|ticket)[-\s#:]*\d{4,}\b', q, re.I)):
+        return _ticket_required()
+    personal_case = bool(PERSONAL.search(q))
+    if _unverified_order_tracking(q):
         return {
             'status': 'ticket_required',
-            'answer': ('This appears to involve a specific order, refund request, '
-                       'payment dispute, or account. Please create a support '
-                       'ticket so the appropriate review and privacy checks apply.'),
+            'answer': ('I cannot confirm your order location or delivery status '
+                       'without verifying the order. Please provide your order '
+                       'ID through a support ticket so the team can verify '
+                       'ownership and investigate the delivery status. '
+                       'I cannot confirm an estimated arrival date yet.'),
             'sources': [],
         }
+    # Refund and other remedial requests remain ticket-only, even when the
+    # user words them as a personal question. No action can be executed here.
+    if personal_case and re.search(r'\b(?:refund|replacement|exchange|return)\b', q, re.I):
+        return _ticket_required()
 
     search = search if search is not None else retriever()
     docs = search.search(q, k=4)
-    if customer_mode() == "approved_only":
+    # All real retrievers must return immutable, curated customer evidence.
+    # Keep injected legacy test doubles compatible while migration is tested.
+    if type(search).__module__.startswith("backend.rag."):
+        docs = [doc for doc in docs if is_approved_customer_passage(doc)]
+    elif customer_mode() == "approved_only":
         docs = [doc for doc in docs if is_approved_customer_passage(doc)]
     allowed_sources = relevant_department_sources(q)
     qualified = _warranty_alternatives(q, docs)
@@ -280,12 +355,12 @@ def answer_question(question: str, search=None):
     for doc in docs:
         if doc.get('source') not in TITLES or doc.get('visibility') != 'customer':
             continue
-        if allowed_sources and doc.get('source') not in allowed_sources:
+        if doc.get("semantic_score") is None and allowed_sources and doc.get('source') not in allowed_sources:
             continue
         body = doc.get('text', '')
         body_terms = keywords(body)
         matched = terms & body_terms
-        if not matched:
+        if not matched and doc.get("semantic_score") is None:
             continue
         # Never treat a related subject as evidence for an absent qualifier.
         # For example, a delivery passage cannot substantiate helicopters.
@@ -293,15 +368,57 @@ def answer_question(question: str, search=None):
             continue
         # Require a majority of meaningful query terms; lexical matches are
         # still a conservative filter, NOT a semantic entailment guarantee.
+        semantic_score = doc.get('semantic_score')
+        if semantic_score is not None:
+            # Retrieval already checked semantic relevance against the entire
+            # approved catalog; do not reimpose brittle word-overlap thresholds.
+            if not is_approved_customer_passage(doc):
+                continue
+            candidates.append((float(semantic_score), doc))
+            continue
         if len(matched) / len(terms) < 0.60:
             continue
         candidates.append((len(matched) / len(terms), doc))
 
     if not candidates:
-        return _no_evidence()
+        return _ticket_required() if personal_case else _no_evidence()
 
     candidates.sort(key=lambda pair: -pair[0])
     _, top = candidates[0]
+    # Approved catalog excerpts are already reviewed as complete, safe units.
+    # Do not truncate investigation steps or qualifying conditions to two lines.
+    if top.get('semantic_score') is not None and is_approved_customer_passage(top):
+        supported, premise = _conditional_evidence_supported(q, top['text'])
+        if not supported:
+            if personal_case:
+                return _ticket_required()
+            return {
+                'status': 'clarification_required',
+                'answer': ('The cited guidance applies only if ' + premise +
+                           '. Can you confirm whether that condition applies? '
+                           'For an individual case, support must verify '
+                           'the relevant details before investigating.'),
+                'sources': [_citation(top)],
+                'note': NOTE,
+            }
+        if personal_case:
+            return {
+                'status': 'ticket_required',
+                'answer': (top['text'][:1500] + ' For your specific case, '
+                           'please create a support ticket for order ownership, '
+                           'identity and delivery verification. No refund or '
+                           'replacement is automatically approved.'),
+                'sources': [_citation(top)],
+                'note': NOTE,
+            }
+        return {
+            'status': 'answered',
+            'answer': top['text'][:1800],
+            'sources': [_citation(top)],
+            'note': NOTE,
+        }
+    if personal_case:
+        return _ticket_required()
     passages = _passages(top.get('text', ''))
     ranked = sorted(enumerate(passages),
                     key=lambda item: (-len(terms & keywords(item[1])), item[0]))
@@ -337,6 +454,16 @@ def answer_question(question: str, search=None):
     }
 
 
+HELP_CENTER_BUSY = ('The Help Center is busy right now. Please try again in a moment, '
+                    'or raise a support ticket.')
+
+
 @router.post('/ask')
 def ask(body: Question, user=Depends(principal)):
-    return answer_question(body.question)
+    try:
+        return answer_question(body.question)
+    except Exception as exc:
+        # Embedding provider timeout/rate limit, or an unavailable index.
+        # Log the class only; never echo provider text to the customer.
+        logging.getLogger('fixflow.help').warning('Help Center lookup failed: %s', type(exc).__name__)
+        raise HTTPException(503, HELP_CENTER_BUSY, headers={'Retry-After': '5'}) from None

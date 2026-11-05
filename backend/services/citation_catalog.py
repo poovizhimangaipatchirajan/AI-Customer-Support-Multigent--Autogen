@@ -5,7 +5,6 @@ from functools import lru_cache
 from backend.rag.hybrid import INDEX, citation_metadata, INTERNAL_ONLY
 from backend.rag.customer_runtime import customer_mode
 from backend.rag.customer_index import DEFAULT_INDEX, verify_index
-from backend.rag.customer_policy import is_approved_customer_passage
 
 @lru_cache(maxsize=2)
 def _load_manifest(path, mtime_ns):

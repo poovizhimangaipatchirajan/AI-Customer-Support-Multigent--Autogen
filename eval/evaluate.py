@@ -46,8 +46,13 @@ def main():
     args = p.parse_args()
     if args.k < 1: p.error('--k must be positive')
     if args.mode == 'live':
-        from backend.rag.hybrid import HybridRetriever
-        retriever = HybridRetriever()
+        # Same retriever the API and worker use for FIXFLOW_CUSTOMER_INDEX_MODE
+        # (approved_only for the submission), not a hardcoded legacy index.
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / '.env')  # query embeddings need OPENAI_API_KEY
+        from backend.rag.customer_runtime import create_customer_retriever, customer_mode
+        retriever = create_customer_retriever()
+        index_mode = customer_mode()
         search = lambda q, k: retriever.search(q, k=k, include_internal=False)
     else:
         from backend.rag.hybrid import chunks, tokenize
@@ -59,6 +64,7 @@ def main():
             ranking = sorted(range(len(docs)), key=lambda i: (-float(scores[i]), i))
             return [docs[i] for i in ranking[:k]]
     report = evaluate(search, k=args.k)
+    report['metrics']['mode'] = args.mode if args.mode == 'offline' else f'live:{index_mode}'
     out = ROOT / args.out
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(report, indent=2), encoding='utf-8')

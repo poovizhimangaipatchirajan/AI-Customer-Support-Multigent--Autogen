@@ -15,13 +15,6 @@ POLICIES = ROOT / 'policies'
 MANIFEST = ROOT / 'local_index/manifest.json'
 
 
-def load_policy():
-    spec = importlib.util.spec_from_file_location('fixflow_policy_preflight', POLICY)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 def check(root=ROOT):
     issues, notes = [], []
     policy_file = root / 'backend/rag/customer_policy.py'

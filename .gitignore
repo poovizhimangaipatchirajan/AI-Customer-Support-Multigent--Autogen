@@ -95,3 +95,19 @@ frontend/assests/
 !evidence/screenshots/*.jpeg
 
 # Private evidence remains excluded by the global rule above
+
+# ============================================================
+# Local backups, regression logs, archives and real data
+# ============================================================
+local_customer_index.backup-*/
+local_index.backup-*/
+*.bak*
+regression_*.txt
+pytest_*.txt
+*_sources.zip
+# Complaint logs and exports may contain real customer data
+*complaint_log*.csv
+*.xlsx
+
+# Superseded screenshots kept locally only
+evidence/screenshots/old/

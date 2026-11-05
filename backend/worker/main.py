@@ -5,6 +5,7 @@ import os
 import time
 import uuid
 from functools import partial
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,11 +17,56 @@ from backend.db.store import init, connect, audit
 from backend.rag.hybrid import INTERNAL_ONLY
 from backend.rag.customer_runtime import create_customer_retriever
 from backend.agents.team import make_team
-from backend.services.grounding_guard import check_response_grounding, check_customer_visibility, customer_safe_passages
+from backend.services.grounding_guard import check_response_grounding, check_customer_visibility, customer_safe_passages, repair_unsupported_return_anchor, repair_unsupported_category_membership
 from backend.services.evidence_quality import missing_citation_domains
-from backend.services_rubric_logging import migrate as migrate_rubric, record_agent_events, record_agent_outputs
+from backend.services.evidence_fallback import extractive_policy_fallback
+from backend.services.refund_routing import mandatory_refund_review
+from backend.services.followup_context import review_context, safe_timing_fallback
+from backend.services.complaint_log import migrate as migrate_rubric, record_agent_events, record_agent_outputs
 
 LEASE_SECONDS = 180
+# Must stay below LEASE_SECONDS so a timed-out run is handled before recovery.
+RUN_TIMEOUT_SECONDS = float(os.getenv("FIXFLOW_AI_RUN_TIMEOUT", "150"))
+REVIEW_TIMEOUT_SECONDS = 60.0
+
+
+def _semantic_claim_check(customer_query, draft, passages):
+    """Optional independent semantic audit; no change to existing guards.
+
+    Enable explicitly with FIXFLOW_CLAIM_VERIFIER=1. Fail closed when enabled.
+    This does not modify the draft, citations, or refund authorization.
+    """
+    if os.getenv("FIXFLOW_CLAIM_VERIFIER", "0") != "1":
+        return None
+    from backend.services.claim_verifier import verify_claims
+
+    async def evaluate(system_prompt, payload):
+        from openai import AsyncOpenAI
+        client = AsyncOpenAI(timeout=15.0, max_retries=0)
+        response = await client.chat.completions.create(
+            model=os.getenv("FIXFLOW_CLAIM_VERIFIER_MODEL", "gpt-4o-mini"),
+            messages=[{"role": "system", "content": system_prompt},
+                      {"role": "user", "content": payload}],
+            response_format={"type": "json_object"},
+            temperature=0,
+        )
+        return response.choices[0].message.content or ""
+
+    def run():
+        return asyncio.run(verify_claims(customer_query, draft, passages, evaluate))
+
+    # persist() is called synchronously by an AutoGen tool in the running event
+    # loop. Run the verifier in a separate thread, with a bounded wait.
+    executor = ThreadPoolExecutor(max_workers=1)
+    future = executor.submit(run)
+    try:
+        verdict = future.result(timeout=25)
+        return None if verdict.accepted else verdict.reason
+    except (FutureTimeout, Exception):
+        return "VERIFIER_UNAVAILABLE"
+    finally:
+        executor.shutdown(wait=False, cancel_futures=True)
+
 
 
 def recover():
@@ -83,6 +129,30 @@ def recover():
                     """,
                     (job["ticket_id"],)
                 )
+
+
+def requeue_after_timeout(row):
+    """Retry a timed-out run once from a clean state (rule 37).
+
+    Returns True when requeued. The partial result of the timed-out attempt
+    was never published and is discarded so the retry cannot conflict with it.
+    A second timeout returns False and the caller fails closed.
+    """
+    with connect() as c:
+        c.execute("BEGIN IMMEDIATE")
+        job = c.execute("SELECT status, lease_token, attempts FROM jobs WHERE id=?",
+                        (row["id"],)).fetchone()
+        if (not job or job["status"] != "PROCESSING" or job["lease_token"] != row["lease"]
+                or job["attempts"] >= 2):
+            audit(c, row["ticket_id"], "AI_RUN_TIMEOUT")
+            return False
+        c.execute("DELETE FROM ai_results WHERE job_id=?", (row["id"],))
+        c.execute("UPDATE jobs SET status='QUEUED', lease_token=NULL, heartbeat=NULL WHERE id=?",
+                  (row["id"],))
+        c.execute("UPDATE tickets SET status='QUEUED' WHERE id=? AND status='PROCESSING'",
+                  (row["ticket_id"],))
+        audit(c, row["ticket_id"], "AI_RUN_TIMEOUT_RETRY")
+        return True
 
 
 def claim():
@@ -165,7 +235,7 @@ def persist(
         job = c.execute("SELECT ticket_id, status, lease_token, input_version "
                         "FROM jobs WHERE id=?", (job_id,)).fetchone()
         ticket = c.execute(
-            "SELECT risk, status, version FROM tickets WHERE id=?",
+            "SELECT risk, status, version, claimed_amount, subject, description FROM tickets WHERE id=?",
             (ticket_id,)
         ).fetchone()
         if (not job or not ticket or job["ticket_id"] != ticket_id
@@ -179,6 +249,12 @@ def persist(
         if not ticket:
             raise RuntimeError("Ticket missing")
 
+        if not isinstance(draft, str) or not draft.strip():
+            raise ValueError("Empty or malformed agent draft")
+        if not isinstance(ids, (list, tuple)) or any(
+            not isinstance(item, str) for item in ids
+        ):
+            raise ValueError("Malformed citation IDs")
         requested_ids = list(ids)
         approved_ids = [
             item for item in requested_ids
@@ -214,7 +290,7 @@ def persist(
         # Use the latest visible customer message for both grounding and
         # provenance validation. The original ticket is a fallback only.
         customer_query = ""
-        if not rejection_reasons and not escalate:
+        if not rejection_reasons:
             latest = c.execute(
                 "SELECT content FROM messages WHERE ticket_id=? AND "
                 "role IN ('customer','user') AND visible=1 "
@@ -229,35 +305,97 @@ def persist(
                 customer_query = ((original["subject"] or "") + " " +
                                   (original["description"] or "")) if original else ""
 
+        # Drop unsupported "your item belongs to category X" claims before
+        # validation; the repaired draft is still fully revalidated below.
+        if not rejection_reasons:
+            draft, category_repaired = repair_unsupported_category_membership(
+                draft, [safe_by_id[item] for item in approved_ids])
+            if category_repaired:
+                print("EVIDENCE_REPAIR: CATEGORY_MEMBERSHIP_REMOVED", flush=True)
+
         # A valid citation is necessary but not sufficient for auto-publication.
-        if not rejection_reasons and not escalate:
+        if not rejection_reasons:
             grounding_reason = check_response_grounding(
                 draft, [safe_by_id[item] for item in approved_ids],
                 customer_message=customer_query,
             )
+            if grounding_reason == "UNSUPPORTED_RETURN_WINDOW_ANCHOR":
+                candidate = repair_unsupported_return_anchor(
+                    draft, [safe_by_id[item] for item in approved_ids]
+                )
+                if candidate != draft and check_response_grounding(
+                    candidate, [safe_by_id[item] for item in approved_ids],
+                    customer_message=customer_query,
+                ) is None and check_customer_visibility(candidate) is None:
+                    draft = candidate
+                    grounding_reason = None
+                    print("EVIDENCE_REPAIR: RETURN_WINDOW_ANCHOR_REMOVED", flush=True)
+            if grounding_reason == "UNSUPPORTED_RETURN_WINDOW_ANCHOR":
+                # Preserve the cited SOP verbatim instead of inventing a
+                # purchase/delivery anchor. No product-specific replacement.
+                # The candidate is accepted only if all publication checks pass.
+                candidate = extractive_policy_fallback(
+                    customer_query, [safe_by_id[i] for i in approved_ids]
+                )
+                if candidate and (
+                    check_response_grounding(
+                        candidate, [safe_by_id[i] for i in approved_ids],
+                        customer_message=customer_query,
+                    ) is None
+                    and check_customer_visibility(candidate) is None
+                    and not missing_citation_domains(
+                        customer_query, candidate,
+                        [safe_by_id[i] for i in approved_ids],
+                    )
+                ):
+                    draft = candidate
+                    grounding_reason = None
+                    print("EVIDENCE_REPAIR: VERIFIED_SOURCE_EXTRACT", flush=True)
             if grounding_reason:
                 rejection_reasons.append(grounding_reason)
 
         # A multi-intent answer must cite each explicit policy domain.
-        if not rejection_reasons and not escalate:
-            if missing_citation_domains(customer_query, draft,
-                                        [safe_by_id[i] for i in approved_ids]):
+        if not rejection_reasons:
+            missing_domains = missing_citation_domains(
+                customer_query, draft, [safe_by_id[i] for i in approved_ids]
+            )
+            if missing_domains:
+                print("CITATION_VALIDATION: MISSING_DOMAIN_CITATION domains="
+                      + ",".join(missing_domains), flush=True)
                 rejection_reasons.append("MISSING_DOMAIN_CITATION")
+        # Additional semantic publication gate. Only already-approved passages
+        # reach this verifier; existing deterministic checks remain authoritative.
+        if not rejection_reasons:
+            semantic_reason = _semantic_claim_check(
+                customer_query, draft, [safe_by_id[i] for i in approved_ids]
+            )
+            if semantic_reason:
+                print("CLAIM_VERIFICATION: " + semantic_reason, flush=True)
+                rejection_reasons.append("CLAIM_VERIFICATION_FAILED")
         visibility_reason = check_customer_visibility(draft)
         if visibility_reason:
             rejection_reasons.append(visibility_reason)
         invalid_evidence = bool(rejection_reasons)
         if rejection_reasons:
             print("EVIDENCE_REJECTION: " + ",".join(rejection_reasons), flush=True)
+            # Audit only the rejection codes. Never publish an unvalidated draft
+            # or log customer text and policy passages.
+            audit(c, ticket_id, "AI_EVIDENCE_REJECTED:" + ",".join(rejection_reasons))
         elif escalate or ticket["risk"]:
             print("EVIDENCE_REVIEW: AGENT_OR_TICKET_RISK", flush=True)
         else:
             print("EVIDENCE_VALIDATION: ACCEPTED", flush=True)
 
-        escalate = bool(escalate or ticket["risk"] or invalid_evidence)
+        # Enforce the monetary gate independently of agent output. An LLM cannot
+        # downgrade a >= INR 500 refund to an automatically answered ticket.
+        mandatory_review = mandatory_refund_review(dict(ticket))
+        escalate = bool(escalate or ticket["risk"] or mandatory_review or invalid_evidence)
 
         if invalid_evidence:
-            draft = (
+            contextual_fallback = safe_timing_fallback(
+                customer_query, review_context(c, ticket_id)
+            )
+            draft = contextual_fallback or (
                 "Your request requires human review because "
                 "verified customer-facing policy evidence "
                 "is insufficient."
@@ -341,10 +479,58 @@ def finish(row, success):
             or not success
             or not result
             or ticket["risk"]
+            or mandatory_refund_review(dict(ticket))
             or requires_review
         )
 
-        if result and not escalate:
+        # Low-value automatic acceptance (amended policy): every check is
+        # deterministic and backend-owned, so it supersedes the agent's
+        # case-decision flag. Never applies to risky or >= INR 500 tickets.
+        auto_message = None
+        if result and success and not ticket["risk"] and not mandatory_refund_review(dict(ticket)):
+            from backend.services.auto_refund import try_accept
+            auto_message = try_accept(c, row["ticket_id"])
+            if auto_message:
+                escalate = False
+
+        if result and success:
+            # Publish the validated guidance (or the safe evidence-failure fallback)
+            # even when the ticket requires a human decision. Never expose internal
+            # agent analysis or automatically approve a remedy. A draft saved by a
+            # run that later failed (no LogAgent acknowledgement, worker error) is
+            # not a completed handoff: it stays admin-only and the failure notice
+            # below is published instead (fail closed).
+            customer_draft = result["draft"]
+            if auto_message:
+                # Backend-authored acceptance text replaces the agent draft.
+                customer_draft = auto_message
+            if escalate:
+                risk_codes = set(filter(None, (ticket["risk"] or "").split(",")))
+                recorded_review = review_context(c, row["ticket_id"])
+                if mandatory_refund_review(dict(ticket)) and "decision: APPROVED" in recorded_review:
+                    reason = ("The human refund review was approved for further "
+                              "processing. This does not confirm a refund payment.")
+                elif mandatory_refund_review(dict(ticket)) and "decision: REJECTED" in recorded_review:
+                    reason = ("The human refund review was rejected. "
+                              "A new decision would require an authorized review.")
+                elif mandatory_refund_review(dict(ticket)):
+                    reason = ("Human review is required because the requested refund "
+                              "is INR 500 or more. A reviewer must verify eligibility "
+                              "and make the refund decision.")
+                elif risk_codes:
+                    reason = ("Human review is required because this request has "
+                              "additional risk or verification requirements.")
+                else:
+                    reason = ("Human review is required before a support specialist "
+                              "can make a case-specific decision.")
+                recorded_review = review_context(c, row["ticket_id"])
+                if "decision: APPROVED" in recorded_review:
+                    suffix = " Review approval does not mean a payment was issued."
+                elif "decision: REJECTED" in recorded_review:
+                    suffix = " The refund review was rejected; no payment was issued."
+                else:
+                    suffix = " No refund or replacement has been approved or processed."
+                customer_draft = customer_draft.rstrip() + "\n\n" + reason + suffix
             c.execute(
                 """
                 INSERT OR IGNORE INTO messages
@@ -354,10 +540,22 @@ def finish(row, success):
                     row["id"],
                     row["ticket_id"],
                     "assistant",
-                    result["draft"],
+                    customer_draft,
                     1,
                     time.time()
                 )
+            )
+
+        elif escalate:
+            # Agent/worker failure must still leave an intelligible customer update.
+            c.execute(
+                "INSERT OR IGNORE INTO messages VALUES (?, ?, ?, ?, ?, ?)",
+                (row["id"], row["ticket_id"], "assistant",
+                 "Your request requires human review because the automated "
+                 "policy assessment could not be completed safely. A support "
+                 "specialist must check the applicable policy and eligibility. "
+                 "No refund or replacement has been approved or processed.",
+                 1, time.time())
             )
 
         ticket_status = (
@@ -426,9 +624,10 @@ def logged_by_agent(messages):
 async def process(row, retriever):
     with connect() as c:
         ticket = c.execute(
-            "SELECT subject, description FROM tickets WHERE id=?",
+            "SELECT subject, description, claimed_amount, risk FROM tickets WHERE id=?",
             (row['ticket_id'],)
         ).fetchone()
+        verified_review = review_context(c, row["ticket_id"])
         history = c.execute(
             "SELECT role, content FROM messages "
             "WHERE ticket_id=? AND visible=1 "
@@ -448,6 +647,20 @@ async def process(row, retriever):
     initial_query = latest_customer or (
         f"{ticket['subject']} {ticket['description']}"
     )
+    # The amount may be supplied in the complaint form rather than the prose.
+    # Include the persisted amount in the agent's context so it can distinguish
+    # a below-threshold request from an INR 500+ mandatory review.
+    import re
+    if (ticket["claimed_amount"] is not None and
+            re.search(r"\brefund\b|\bmoney back\b", initial_query, re.I)):
+        initial_query += ("\nVerified form input (customer-claimed amount, not "
+                          "refund approval): INR " +
+                          str(ticket["claimed_amount"]) + ".")
+    if ticket["risk"]:
+        # Trusted database risk flags are control metadata, not policy evidence.
+        # The agent must explain the review without claiming approval.
+        initial_query += ("\nTicket review controls (not a refund decision): "
+                          + ticket["risk"] + ".")
     try:
         team, client = make_team(
             retriever,
@@ -489,11 +702,15 @@ async def process(row, retriever):
         conversation = "\n".join(
             f"{m['role']}: {m['content'][:2500]}" for m in reversed(history)
         )
-        result = await team.run(
+        stream = team.run_stream(
             task=(
                 f"Customer subject: {ticket['subject']}\n"
                 f"Original complaint: {ticket['description']}\n"
                 f"Conversation (latest customer message takes priority):\n{conversation}\n"
+                f"Verified admin refund-review state: {verified_review}\n"
+                f"Mandatory ticket risk flags: {ticket['risk'] or 'none'}. "
+                "For REFUND_GE_500, provide grounded return/refund guidance, "
+                "explain that a human must review the case, and never approve or execute a refund. "
                 "Answer the latest customer follow-up, not only the original complaint. "
                 "Use the four-agent workflow and retrieved policy evidence. "
                 "Do not invent live tracking data, shipment milestones, delivery ETAs, "
@@ -501,6 +718,22 @@ async def process(row, retriever):
                 "say so clearly."
             )
         )
+
+        # Persist only actual agent speaker observations as streaming events.
+        # Full outputs remain admin-only and are stored after completion.
+        from autogen_agentchat.base import TaskResult
+        result = None
+        # Hard cap per ticket: a stuck model call must not hold the single
+        # worker (the heartbeat would otherwise keep the lease alive forever).
+        async with asyncio.timeout(RUN_TIMEOUT_SECONDS):
+            async for event in stream:
+                if isinstance(event, TaskResult):
+                    result = event
+                    break
+                if getattr(event, "source", None) in ("QueryAgent", "KnowledgeAgent", "ResolutionAgent", "LogAgent"):
+                    record_agent_events(row, [event])
+        if result is None:
+            raise RuntimeError("AutoGen stream ended without TaskResult")
 
         with connect() as c:
             saved = c.execute(
@@ -545,6 +778,11 @@ async def process(row, retriever):
 
         finish(row, success)
 
+    except TimeoutError:
+        print(f"Worker error: AI run exceeded {RUN_TIMEOUT_SECONDS}s", flush=True)
+        if not requeue_after_timeout(row):
+            finish(row, False)  # second timeout: fail closed to human review
+
     except Exception as exc:
         print(
             "Worker error:",
@@ -562,6 +800,47 @@ async def process(row, retriever):
             pass
 
         await client.close()
+
+
+async def process_human_review(model_client=None):
+    """Record one pending human approval through UserProxyAgent + LogAgent.
+
+    Returns True when a run was handled. The approved reply was already
+    published by the admin; failure here only retries or marks the recording
+    failed (audited) and never changes the ticket.
+    """
+    from backend.agents.team import make_review_team
+    from backend.services import human_review
+
+    run = human_review.claim()
+    if not run:
+        return False
+    client = None
+    try:
+        team, client = make_review_team(
+            run, partial(human_review.record, run), model_client=model_client)
+        async with asyncio.timeout(REVIEW_TIMEOUT_SECONDS):
+            result = await team.run(task=(
+                f"Escalated ticket {run['ticket_code']} was reviewed by a human support "
+                "specialist. SupportReviewer, state the decision; LogAgent, record it."))
+        logged = any(getattr(m, "source", None) == "LogAgent"
+                     and "LOGGED" in str(getattr(m, "content", "")) for m in result.messages)
+        with connect() as c:
+            done = c.execute("SELECT status FROM human_review_runs WHERE id=?",
+                             (run["id"],)).fetchone()["status"] == "DONE"
+        if not (logged and done):
+            human_review.fail(run)
+        print(f"Human review {run['id']}: logged={logged and done}", flush=True)
+    except Exception as exc:
+        print("Human review recording failed:", type(exc).__name__, flush=True)
+        human_review.fail(run)
+    finally:
+        if client is not None and model_client is None:
+            try:
+                await client.close()
+            except Exception:
+                pass
+    return True
 
 
 async def main():
@@ -595,7 +874,7 @@ async def main():
 
         if row:
             await process(row, retriever)
-        else:
+        elif not await process_human_review():
             await asyncio.sleep(2)
 
 

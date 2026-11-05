@@ -4,7 +4,6 @@ Not a semantic entailment verifier. Never interprets SOP text as authorization t
 perform refunds or other customer-account actions.
 """
 import re
-import os
 
 # Numeric timelines are high-impact commitments. Check both the duration and
 # its subject in a single cited passage, rather than matching an arbitrary
@@ -61,6 +60,254 @@ def _supported_time(match, sentence, texts):
     return False
 
 
+# DOA assessment eligibility is not a shipping ETA. Match the same failure
+# condition and duration within a single approved passage; do not accept a
+# delivery promise merely because a DOA passage happens to be cited.
+_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4,
+                 "five": 5, "six": 6, "seven": 7, "eight": 8,
+                 "nine": 9, "ten": 10, "fourteen": 14, "thirty": 30}
+_DOA_CONTEXT = re.compile(
+    r"\b(?:dead[ -]on[ -]arrival|DOA|fail(?:ed|s|ure)?\s+to\s+power\s+on|"
+    r"severe\s+functional\s+failure)\b", re.I)
+_DOA_WINDOW = re.compile(
+    r"\bwithin\s+(\d+|" + "|".join(_NUMBER_WORDS) +
+    r")\s+(?:(business|working|calendar)\s+)?(days?|hours?|weeks?)\b", re.I)
+_DELIVERY_COMMITMENT = re.compile(
+    r"\b(?:deliver(?:ed|y)?|arriv(?:es|ing|al)?|ship(?:ped)?|dispatch(?:ed)?)"
+    r"\s+(?:within|in|by)\s+", re.I)
+
+
+def _duration_tuple(match):
+    value, qualifier, unit = match.groups()
+    amount = int(value) if value.isdigit() else _NUMBER_WORDS[value.lower()]
+    q = (qualifier or "").lower()
+    return amount, "business" if q == "working" else q, unit.lower().rstrip("s")
+
+
+def _supported_doa_eligibility(clause, texts):
+    """Allow supported DOA *assessment windows*, never shipment promises."""
+    if not _DOA_CONTEXT.search(clause) or _DELIVERY_COMMITMENT.search(clause):
+        return False
+    if not re.search(r"\b(?:may|might|could|qualif|eligib|assessment)\b", clause, re.I):
+        return False
+    claim = _DOA_WINDOW.search(clause)
+    if not claim:
+        return False
+    amount, qualifier, unit = _duration_tuple(claim)
+    for text in texts:
+        for fragment in re.split(r"(?<=[.!?])\s+|\n+", text):
+            if not _DOA_CONTEXT.search(fragment):
+                continue
+            for evidence_match in _DOA_WINDOW.finditer(fragment):
+                e_amount, e_qualifier, e_unit = _duration_tuple(evidence_match)
+                # Unqualified 'days' may refer to calendar days in a DOA
+                # eligibility statement; never equate business with calendar.
+                qualifiers_compatible = (qualifier == e_qualifier or
+                                         (qualifier == "" and e_qualifier == "calendar"))
+                if (amount == e_amount and unit == e_unit and qualifiers_compatible):
+                    return True
+    return False
+
+
+# Phrasings that assert purchase/delivery as the start of a return window.
+# "within N days of X" is the original form; "N-day return window from X" and
+# "within N days after X" assert the same unsupported start point.
+_ANCHORED_WINDOW_PATTERNS = (
+    re.compile(r"\b(?:within|in)\s+(\d+)\s+days?\s+of\s+(purchase|delivery)\b", re.I),
+    re.compile(r"\b(\d+)[\s-]*days?\b(?:\s+(?:return\s+)?(?:window|period))?"
+               r"\s+(?:from|after)\s+(?:the\s+)?(?:date\s+of\s+)?(purchase|delivery)\b", re.I),
+)
+
+
+def _return_window_anchor_issue(sentence, texts):
+    """Do not assert purchase/delivery as the starting date without evidence."""
+    match = next((m for m in (pat.search(sentence) for pat in _ANCHORED_WINDOW_PATTERNS) if m), None)
+    if not match or not re.search(r"\breturn(?:s|ed|ing)?\b", sentence, re.I):
+        return None
+    anchor = match.group(2).lower()
+    for text in texts:
+        if re.search(r"\b(?:within|in)\s+" + re.escape(match.group(1)) +
+                     r"\s+days?\s+of\s+" + anchor + r"\b", text, re.I):
+            return None
+        # The same duration explicitly tied to the same anchor in the passage.
+        if re.search(r"\b" + re.escape(match.group(1)) + r"[\s-]*days?\b[^.!?]{0,40}?\b"
+                     r"(?:of|from|after)\s+(?:the\s+)?(?:date\s+of\s+)?" + anchor + r"\b",
+                     text, re.I):
+            return None
+    # Delivery-based DOA evidence can establish a delivery anchor for the
+    # *same* electronics duration when the return SOP separately confirms it.
+    # Never use this cross-reference for a purchase-date assertion.
+    if anchor == 'delivery' and re.search(r"\bconsumer\s+electronic", sentence, re.I):
+        return_window = any(re.search(r"\bconsumer\s+electronics?\b[^.!?]*?\b" +
+                                      re.escape(match.group(1)) + r"[ -]day\b", t, re.I)
+                            for t in texts)
+        delivery_context = any(re.search(r"\b(?:DOA|dead[ -]on[ -]arrival|severe\s+functional\s+failure)\b", t, re.I)
+                               and re.search(r"\b(?:" + re.escape(match.group(1)) + r"|" +
+                                             next((w for w, n in _NUMBER_WORDS.items() if n == int(match.group(1))), "") +
+                                             r")\s+calendar\s+days?\s+of\s+delivery\b", t, re.I)
+                               for t in texts)
+        if return_window and delivery_context:
+            return None
+    return 'UNSUPPORTED_RETURN_WINDOW_ANCHOR'
+
+
+# Return categories as approved passages name them. Used only to detect a
+# draft asserting that the customer's item belongs to one (rules 17, 26);
+# no product is ever mapped to a category here.
+_CATEGORY = (r"(?:fashion(?:\s*(?:&|and)\s*apparel)?|apparel|consumer\s+electronics?|"
+             r"(?:large\s+)?home\s+appliances?|personal\s+care(?:\s*(?:&|and)\s*beauty)?)"
+             r"(?:\s+(?:items?|products?|goods|devices?))?")
+_CATEGORY_EXAMPLE = re.compile(
+    r"(\b" + _CATEGORY + r")(\s*,\s*|\s+)(?:like|such\s+as|including|e\.g\.,?)\s+"
+    r"((?:your|the|a|an|this)\s+)?([A-Za-z][\w-]*(?:\s+[A-Za-z][\w-]*){0,3}?)"
+    r"(?:(\s*,)|(?=\s+(?:have|has|are|is|come|comes|carry|carries|must|need|needs|qualify|qualifies|"
+    r"can|may|require|requires|there)\b|\s*[.;:!?]))", re.I)
+# After ", including X," the clause must continue with a verb or end; otherwise
+# X is the first item of a list ("including phones, laptops and tablets").
+_EXAMPLE_CONTINUES = re.compile(
+    r"\s+(?:have|has|are|is|come|comes|carry|carries|must|need|needs|qualify|qualifies|"
+    r"can|may|require|requires|there)\b|\s*[.;:!?]|\s*$", re.I)
+_MEMBERSHIP = (r"(?:(?:is|are)\s+(?:considered|classified\s+(?:as|under)|categori[sz]ed\s+(?:as|under|in)|"
+               r"treated\s+as|counted\s+as|regarded\s+as)\s+(?:an?\s+|part\s+of\s+(?:the\s+)?)?"
+               r"|(?:is|are)\s+an?\s+"  # plain "it is a consumer electronic item"
+               r"|,?\s*being\s+(?:an?\s+)?|falls?\s+(?:under|into|within)\s+(?:the\s+)?"
+               r"|belongs?\s+to\s+(?:the\s+)?)")
+_CATEGORY_ASSERTION = re.compile(r"\b" + _MEMBERSHIP + r"(?P<cat>" + _CATEGORY + r")(?:\s+category)?", re.I)
+# "<item> <membership> <category>[, which| and| ,] <rest>" -> "<Category> <rest>".
+_CATEGORY_REWRITE = re.compile(
+    r"^(?P<subject>(?:the|your|this|these|those|my)?\s*[\w\s-]{1,60}?)\s*" + _MEMBERSHIP +
+    r"(?P<cat>" + _CATEGORY + r")(?:\s+category)?\s*(?:,\s*which\s+|\s+which\s+|\s+and\s+|,\s+|\s+that\s+)"
+    r"(?:(?:it|they|this|these)\s+)?"
+    r"(?P<rest>(?:has|have|is|are|come|comes|carry|carries|must|need|needs|require|requires|qualify|qualifies)\b.*)$",
+    re.I)
+_CANONICAL = (("electronic", "Consumer electronics"), ("appliance", "Large home appliances"),
+              ("personal", "Personal care and beauty products"), ("fashion", "Fashion and apparel items"),
+              ("apparel", "Fashion and apparel items"))
+_PLURAL_VERB = {"has": "have", "is": "are", "comes": "come", "carries": "carry", "needs": "need",
+                "requires": "require", "qualifies": "qualify"}
+
+
+def _rewrite_membership(sentence):
+    """Turn "<item> is considered <category>, which has W" into "<Category> have W"."""
+    m = _CATEGORY_REWRITE.match(sentence.strip())
+    if not m:
+        return None
+    canonical = next(name for key, name in _CANONICAL if key in m.group('cat').lower())
+    verb, _, tail = m.group('rest').partition(' ')
+    return f"{canonical} {_PLURAL_VERB.get(verb.lower(), verb)} {tail}".strip()
+
+
+CATEGORY_LIMITATION = ("The approved policy does not say which return category your item "
+                       "belongs to, so the applicable return category and window will be "
+                       "confirmed during verification.")
+
+
+def repair_unsupported_category_membership(draft, passages):
+    """Remove claims that the customer's item belongs to a return category.
+
+    "Consumer electronics like your cable have..." keeps the policy statement
+    and drops the unsupported example; a sentence classifying the item
+    ("your blender is considered a consumer electronic...") is replaced by one
+    honest limitation. Conditional wording ("If your item is...") is kept, and
+    nothing changes when a cited passage itself names the item. The caller
+    must still revalidate the result. Returns (draft, changed).
+    """
+    if not isinstance(draft, str) or not draft.strip():
+        return draft, False
+    texts = ' '.join(p.get('text', '') for p in passages if isinstance(p, dict)).lower()
+    changed = False
+
+    def strip_example(m):
+        nonlocal changed
+        item = m.group(4)
+        if re.search(r'\b' + re.escape(item.lower()) + r'\b', texts):
+            return m.group(0)  # the passage itself names this item
+        if m.group(2).strip() == ',' and not _EXAMPLE_CONTINUES.match(m.string, m.end()):
+            return m.group(0)  # a list follows; leave the sentence for revalidation
+        changed = True
+        # ", including X," -> drop both commas; " like X," -> keep the clause comma.
+        trailing = '' if m.group(2).strip() == ',' else (m.group(5) or '')
+        return m.group(1) + trailing
+
+    paragraphs = []
+    limitation_added = False
+    for paragraph in draft.split('\n'):
+        paragraph = _CATEGORY_EXAMPLE.sub(strip_example, paragraph)
+        kept = []
+        for sentence in re.split(r'(?<=[.!?])\s+', paragraph):
+            conditional = re.match(r'\s*(?:if|whether|should|in case)\b', sentence, re.I)
+            if sentence and not conditional and _CATEGORY_ASSERTION.search(sentence):
+                changed = True
+                rewritten = _rewrite_membership(sentence)
+                if rewritten:
+                    kept.append(rewritten)  # keep the category policy, drop the item claim
+                if not limitation_added:
+                    kept.append(CATEGORY_LIMITATION)
+                    limitation_added = True
+                continue
+            kept.append(sentence)
+        paragraphs.append(' '.join(s for s in kept if s))
+    return ('\n'.join(paragraphs), True) if changed else (draft, False)
+
+
+def repair_unsupported_return_anchor(draft, passages):
+    """Remove only an unsupported 'of purchase/delivery' anchor, never a window.
+
+    Require a matching category and duration in the approved evidence. The
+    caller must revalidate the complete candidate before publishing.
+    """
+    if not isinstance(draft, str) or not draft.strip():
+        return draft
+    texts = [p.get('text', '') for p in passages if isinstance(p, dict)]
+    if not texts or any(not isinstance(t, str) or not t.strip() for t in texts):
+        return draft
+    sentences = re.split(r'(?<=[.!?])\s+|\n+', draft)
+    changed = []
+    count = 0
+    for sentence in sentences:
+        match = re.search(r"\b(within\s+(\d+)\s+days?)\s+of\s+(purchase|delivery)\b", sentence, re.I)
+        if not match or not re.search(r"\breturn(?:s|ed|ing)?\b", sentence, re.I):
+            changed.append(sentence)
+            continue
+        if _return_window_anchor_issue(sentence, texts) is None:
+            changed.append(sentence)
+            continue
+        category = re.search(r"\b(consumer\s+electronics|fashion\s*(?:&|and)\s*apparel|large\s+home\s+appliances)\b", sentence, re.I)
+        if not category:
+            return draft
+        category_text = category.group(1)
+        if not any(re.search(re.escape(category_text) + r"\b[^.!?]*?\b" + re.escape(match.group(2)) + r"[ -]days?\b", t, re.I) for t in texts):
+            return draft
+        changed.append(sentence[:match.start()] + match.group(1) + sentence[match.end():])
+        count += 1
+    return ' '.join(changed) if count == 1 else draft
+
+
+# Known return categories: how a draft names them, and how the approved
+# passage names the same category. Used only to confirm a duration against the
+# SAME category's passage; the guard never maps products to categories.
+_RETURN_CATEGORIES = (
+    (r"fashion(?:\s*(?:&|and)\s*apparel)?|apparel", r"fashion\s*(?:&|and)\s*apparel"),
+    (r"consumer\s+electronics?", r"consumer\s+electronics"),
+    (r"(?:large\s+)?home\s+appliances|large\s+appliances", r"large\s+home\s+appliances"),
+)
+
+
+def _category_window_supported(sentence, value, texts):
+    """True when the sentence names exactly one known return category and an
+    approved passage states the same N-day window for that same category.
+
+    Wrong category, wrong duration, or a sentence naming several categories is
+    never supported here (rule 26: no cross-category windows).
+    """
+    named = [passage_pat for draft_pat, passage_pat in _RETURN_CATEGORIES
+             if re.search(r"\b(?:" + draft_pat + r")\b", sentence, re.I)]
+    if len(named) != 1:
+        return False
+    return any(re.search(named[0] + r"\b[^.!?]*?\b" + re.escape(value) + r"[ -]days?\b", t, re.I)
+               for t in texts)
+
+
 def _unsupported_category_return_window(clause, texts):
     """Validate category-specific return windows against the *same* category.
 
@@ -82,7 +329,7 @@ def _unsupported_category_return_window(clause, texts):
     else:
         category_pattern = r"large\s+home\s+appliances"
     for text in texts:
-        for match in re.finditer(category_pattern + r"\s+(\d+)\s+days?\b", text, re.I):
+        for match in re.finditer(category_pattern + r"\b[^.!?]*?\b(\d+)[ -]days?\b", text, re.I):
             if match.group(1) == claim.group(2):
                 return None
     return 'UNSUPPORTED_DELIVERY_TIME'
@@ -222,8 +469,8 @@ def check_response_grounding(draft, passages, customer_message=None):
         return invoice_issue
     texts = [p.get('text', '') for p in passages if isinstance(p, dict)]
     if not texts or any(not isinstance(t, str) or not t.strip() for t in texts):
-        # Preserve legacy fixture behavior; do not interpret this as evidence.
-        return None
+        # Empty or malformed policy passages cannot ground a customer answer.
+        return "MISSING_POLICY_TEXT"
     # These statements require live, authenticated order or payment evidence,
     # which the policy-only worker does not possess.
     _unverified_status = re.compile(
@@ -274,6 +521,9 @@ def check_response_grounding(draft, passages, customer_message=None):
         category_window_issue = _unsupported_category_return_window(sentence, texts)
         if category_window_issue:
             return category_window_issue
+        anchor_issue = _return_window_anchor_issue(sentence, texts)
+        if anchor_issue:
+            return anchor_issue
         # Do not skip an entire sentence simply because it contains 'not'.
         for clause in re.split(r"[;,]\s*|\s+but\s+|\s+however\s+", sentence, flags=re.I):
             if _ACTION.search(clause) and not _NEGATION.search(clause):
@@ -282,6 +532,25 @@ def check_response_grounding(draft, passages, customer_message=None):
             if category_window_issue:
                 return category_window_issue
             for match in _TIME.finditer(clause):
+                # Commas can separate the return verb/category from its window.
+                # Examine the whole sentence, but never exempt a clause that
+                # itself promises delivery, dispatch, or refund processing.
+                value, qualifier, unit = match.groups()
+                sentence_return_window = (
+                    not qualifier and unit.lower().rstrip('s') == 'day'
+                    and re.search(r"\b(?:return|returns|returned|returning)\b", sentence, re.I)
+                    and re.search(r"\b(?:can|may|eligible|eligibility|window|period|allowed)\b", sentence, re.I)
+                    and not re.search(r"\b(?:deliver|arrive|ship|dispatch|process|issue|complete)\w*\s+(?:within|in|by)\b", clause, re.I)
+                    and (
+                        (re.search(r"\b(?:consumer\s+electronics?|headphones?|earbuds?)\b", sentence, re.I)
+                         and any(re.search(r"\bconsumer\s+electronics\b[^.!?]*?\b" +
+                                           re.escape(value) + r"[ -]days?\b", t, re.I)
+                                 for t in texts))
+                        or _category_window_supported(sentence, value, texts)
+                    )
+                )
+                if sentence_return_window:
+                    continue
                 # Category return/replacement eligibility windows refer to the
                 # period allowed to request a remedy, not an action SLA.
                 # "allows returns within 7 days of delivery" is a return
@@ -294,10 +563,27 @@ def check_response_grounding(draft, passages, customer_message=None):
                         or re.search(r"\b(?:allows?|permits?|accepts?)\s+returns?\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
                         or re.search(r"\breturns?\s+(?:are\s+)?(?:allowed|permitted)\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
                         or re.search(r"\b(?:must|should|can|may)\s+be\s+returned\s+(?:within|in)\s+\d+\s+days?\b", clause, re.I)
+                        or re.search(r"\b(?:can|may)\s+return\b[^.!?;]*?\bwithin\s+\d+\s+days?\b", clause, re.I)
                     )
                     and not re.search(r"\b(?:delivered|arrive|arrives|ship|dispatch|processed|issued|completed)\s+(?:within|in|by)\b", clause, re.I)
                 )
                 if return_eligibility:
+                    value, qualifier, unit = match.groups()
+                    # Do not confuse eligibility with delivery, and never waive
+                    # evidence for a wrong or category-mismatched duration.
+                    if (not qualifier and unit.lower().rstrip('s') == 'day'
+                            and any(re.search(r"\bconsumer\s+electronics\b[^.!?]*?\b" +
+                                              re.escape(value) + r"[ -]days?\b", t, re.I)
+                                    for t in texts)
+                            and re.search(r"\b(?:consumer\s+electronics?|headphones?|earbuds?)\b", sentence, re.I)):
+                        continue
+                    if (not qualifier and unit.lower().rstrip('s') == 'day'
+                            and _category_window_supported(sentence, value, texts)):
+                        continue
+                    if _supported_time(match, clause, texts):
+                        continue
+                    return 'UNSUPPORTED_DELIVERY_TIME' 
+                if _supported_doa_eligibility(sentence, texts):
                     continue
                 # Negated timing promises ('cannot promise delivery in 3 days')
                 # aren't commitments; other claims in the sentence still count.

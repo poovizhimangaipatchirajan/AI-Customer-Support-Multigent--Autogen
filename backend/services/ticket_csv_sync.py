@@ -9,7 +9,7 @@ import re
 import tempfile
 from pathlib import Path
 
-from backend.services_rubric_logging import FIELDS, _rows
+from backend.services.complaint_log import FIELDS, _rows
 
 DEFAULT_PATH = "/app/data/reports/fixflow_complaint_log.csv"
 
@@ -21,7 +21,7 @@ def _safe_cell(value):
 
 
 def sync_csv(path=None):
-    """Rebuild the complete nine-column CSV; atomically publish after SQLite reads.
+    """Rebuild the complete complaint-log CSV (Excel-readable UTF-8); atomically publish after SQLite reads.
 
     A failed snapshot never mutates the database or replaces a valid prior file.
     Returns the number of ticket rows written.
@@ -32,7 +32,7 @@ def sync_csv(path=None):
     temporary = None
     try:
         with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", newline="", dir=target.parent,
+            mode="w", encoding="utf-8-sig", newline="", dir=target.parent,
             prefix=".fixflow-rubric-", suffix=".tmp", delete=False
         ) as handle:
             temporary = Path(handle.name)

@@ -17,8 +17,8 @@ from backend.auth.security import create_session, hash_password
 from backend.db import store
 from backend.main import app
 from backend.worker import main as worker
-from backend.rag.hybrid import HybridRetriever
-from backend.services_rubric_logging import migrate as migrate_rubric
+from backend.rag.customer_runtime import create_customer_retriever, customer_mode
+from backend.services.complaint_log import migrate as migrate_rubric
 
 COMPLAINTS = [
     ("Shipping", "Where is my order? It was supposed to arrive yesterday."),
@@ -68,8 +68,9 @@ def test_live_official_scenario(isolated_client, number, capsys):
     assert initial_status in {"QUEUED", "ESCALATED"}
 
     if initial_status == "QUEUED":
-        # Real hybrid retrieval, OpenAI AutoGen, LogAgent callback, and SQLite finish.
-        retriever = HybridRetriever()
+        # Same retriever the worker uses for the configured index mode
+        # (approved_only for the submission), then real AutoGen and finish.
+        retriever = create_customer_retriever()
         claimed = worker.claim()
         assert claimed is not None and claimed["ticket_id"] == ticket_id
         asyncio.run(worker.process(claimed, retriever))
@@ -113,7 +114,7 @@ def test_live_official_scenario(isolated_client, number, capsys):
     # Do not print raw complaint, user identifiers, policy excerpts, or API keys.
     # The result draft remains in the isolated temporary database for this test.
     report = {
-        "scenario": number, "rubric_category": category,
+        "scenario": number, "rubric_category": category, "index_mode": customer_mode(),
         "initial_status": initial_status, "final_status": final_status,
         "job_status": jobs[0]["status"] if jobs else "NOT_QUEUED",
         "ai_result_persisted": bool(results),
@@ -123,3 +124,44 @@ def test_live_official_scenario(isolated_client, number, capsys):
     }
     with capsys.disabled():
         print("BUILDATHON_LIVE_RESULT " + json.dumps(report), flush=True)
+
+
+# Project acceptance cases TC02/TC07/TC08 (see README). Same opt-in flag and isolation.
+TC_CASES = {
+    "TC02": ("Return request", "I want to return a shirt I bought because it does not fit. "
+             "What is the return window and can I get a refund?", None),
+    "TC07": ("Damaged USB-C cable", "My USB-C cable arrived damaged and does not charge. "
+             "I paid INR 299. Please refund me.", 299),
+    "TC08": ("Wrong headphones", "The headphones I received are the wrong size and colour. "
+             "I want an exchange, or a refund if the right one is unavailable.", None),
+}
+
+
+@pytest.mark.parametrize("case", sorted(TC_CASES))
+def test_live_acceptance_case(isolated_client, case, capsys):
+    subject, complaint, amount = TC_CASES[case]
+    headers = customer_headers()
+    created = isolated_client.post("/tickets", headers=headers, json={
+        "subject": subject, "description": complaint, "claimed_amount": amount})
+    assert created.status_code == 201, created.text
+    ticket_id = created.json()["id"]
+    assert created.json()["status"] == "QUEUED"
+    claimed = worker.claim()
+    assert claimed is not None and claimed["ticket_id"] == ticket_id
+    asyncio.run(worker.process(claimed, create_customer_retriever()))
+    with store.connect() as db:
+        current = db.execute("SELECT status, risk FROM tickets WHERE id=?", (ticket_id,)).fetchone()
+        job = db.execute("SELECT status FROM jobs WHERE ticket_id=?", (ticket_id,)).fetchone()
+        result = db.execute("SELECT citations, requires_review FROM ai_results WHERE ticket_id=?",
+                            (ticket_id,)).fetchone()
+    assert current["status"] in {"ANSWERED", "ESCALATED"}
+    assert job["status"] == "DONE" and result is not None
+    # Safety invariants that hold regardless of model wording.
+    assert "REFUND_GE_500" not in (current["risk"] or "")
+    if case == "TC08":
+        assert "c4345462575a7e45" not in json.loads(result["citations"]), "No shipping citation"
+    with capsys.disabled():
+        print("ACCEPTANCE_LIVE_RESULT " + json.dumps({
+            "case": case, "index_mode": customer_mode(), "final_status": current["status"],
+            "risk": current["risk"], "citations": json.loads(result["citations"]),
+            "requires_review": bool(result["requires_review"])}), flush=True)

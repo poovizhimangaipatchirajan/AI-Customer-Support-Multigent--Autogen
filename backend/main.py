@@ -3,12 +3,12 @@ from fastapi import FastAPI,Depends,HTTPException,Header
 from pathlib import Path
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / '.env')
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel,Field
 from backend.db.store import init,connect,audit
 from backend.auth.security import hash_password,verify_password,create_session,principal,admin_only,digest,revoke
 from backend.auth.mailer import send_token
-from backend.services.risk import screen, REFUND, AMOUNT, CURRENCY_CONTEXT, _money, refund_amount_from_text
+from backend.services.risk import screen, REFUND, AMOUNT, CURRENCY_CONTEXT, _money, refund_amount_from_text, is_refund_information_request as _risk_information_request
 from backend.services.refund_approvals import router as refund_review_router, migrate as migrate_refund_reviews, register_pending
 from backend.services.help_center import router as help_router
 from backend.services.customer_orders import router as customer_orders_router, migrate as migrate_customer_orders
@@ -22,7 +22,7 @@ app.include_router(help_router)
 app.include_router(customer_orders_router)
 app.include_router(evidence_router)
 app.include_router(refund_review_router)
-from backend.services_rubric_logging import router as rubric_router, migrate as migrate_rubric
+from backend.services.complaint_log import router as rubric_router, migrate as migrate_rubric
 app.include_router(rubric_router)
 @app.on_event('startup')
 def startup():
@@ -31,6 +31,11 @@ def startup():
     migrate_evidence()
     migrate_refund_reviews()
     migrate_rubric()
+    from backend.services.auto_refund import migrate as migrate_auto_refund
+    from backend.services.human_review import migrate as migrate_human_review
+    with connect() as c:
+        migrate_auto_refund(c)
+        migrate_human_review(c)
 class Credentials(BaseModel):
  email:str=Field(min_length=5,max_length=254)
  password:str=Field(min_length=12,max_length=128)
@@ -82,6 +87,21 @@ class DecisionIn(BaseModel):response:str=Field(min_length=2,max_length=5000);ver
 class CloseTicketIn(BaseModel):
  reason: str = Field(min_length=10, max_length=1000)
  version: int = Field(ge=0)
+SERVICE_BUSY = 'The service is busy. Please try again in a moment.'
+
+
+@app.exception_handler(sqlite3.OperationalError)
+async def database_busy(request, exc):
+    """SQLite lock contention past busy_timeout: a clear, retryable 503.
+
+    Any other database error is re-raised (500) so real faults stay visible.
+    """
+    if 'locked' in str(exc).lower() or 'busy' in str(exc).lower():
+        logger.warning('Database busy: %s', request.url.path)
+        return JSONResponse(status_code=503, content={'detail': SERVICE_BUSY}, headers={'Retry-After': '2'})
+    raise exc
+
+
 @app.get('/health')
 def health():return {'status':'ok','version':'0.6.0-local'}
 # Fixed-window throttling, per process. Persistent multi-worker throttling is a future hardening item.
@@ -186,6 +206,39 @@ def me(user=Depends(principal)):
  with connect() as c:
   r=c.execute('SELECT public_id FROM users WHERE id=?',(user['id'],)).fetchone()
  return {**user,'customer_code':r['public_id'] if r else None}
+# Missing refund amount is a clarification need, not by itself a safety risk.
+# Keep genuine risk flags and ambiguous/conflicting monetary claims fail-closed.
+def _only_missing_refund_amount(flags, text, amount):
+    return (set(flags) == {'REFUND_AMOUNT_UNVERIFIED'}
+            and amount is None and not FOREIGN_REFUND_CURRENCY.search(text or '')
+            and not any(CURRENCY_CONTEXT.search(m.group(0)) for m in AMOUNT.finditer(text or ''))
+            and refund_amount_from_text(text or '') is None)
+
+# Policy-only questions must reach AutoGen; no remedy is authorized here.
+_REFUND_INFORMATION = re.compile(
+    r"\b(?:explain|describe|what(?:'s| is| are)|how (?:do|can|does|would)|"
+    r"tell me about|information about|guidance on|steps to|process (?:for|to)|"
+    r"policy|policies|eligibility|eligible|return window)\b", re.I
+)
+_REFUND_EXECUTION = re.compile(
+    r"\b(?:refund (?:me|my|this|the)|issue (?:me )?(?:a |the )?refund|"
+    r"process (?:my|the|this) refund|send (?:me )?(?:my|the) money|"
+    r"give me (?:my money|a refund)|I (?:demand|request|need|want) "
+    r"(?:an? |my )?(?:full |complete |partial |total )?refund(?: now| immediately)?)\b", re.I
+)
+
+def is_refund_information_request(text: str) -> bool:
+    # Shared with the risk classifier; no independent intent rules here.
+    return _risk_information_request(text)
+
+FOREIGN_REFUND_CURRENCY = re.compile(r'\b(?:usd|eur|gbp|dollars?|euros?|pounds?)\b|[$€£]', re.I)
+REFUND_CLARIFICATION = (
+    'Please provide your order number/reference number and the refund amount in INR. '
+    'If the product arrived damaged or defective, attach photographs and describe the issue. '
+    'Your order ownership and refund eligibility must be verified. '
+    'No refund or replacement has been approved or processed.'
+)
+
 @app.post('/tickets',status_code=201)
 def create_ticket(body:TicketIn,user=Depends(principal)):
  if user['role']!='customer':raise HTTPException(403,'Customer required')
@@ -206,12 +259,25 @@ def create_ticket(body:TicketIn,user=Depends(principal)):
   amounts = [_money(effective_amount), parsed_amount]
   if any(v is not None and v >= 500 for v in amounts):
    flags = sorted(set(flags) | {'REFUND_GE_500'})
- status='ESCALATED' if flags else 'QUEUED'
+ refund_clarification = (_only_missing_refund_amount(flags, body.subject+' '+body.description, effective_amount)
+                          and not is_refund_information_request(body.subject+' '+body.description))
+ if refund_clarification: flags = []
+ clarification = refund_clarification
+ # Replacement questions receive a grounded agent answer before any evidence request.
+ # Evidence is still required for any actual remedy, not for informational guidance.
+ # Keep mandatory review flags while allowing all non-clarification tickets
+ # to run the four-agent workflow. The worker enforces final ESCALATED status.
+ status='AWAITING_CUSTOMER' if clarification else 'QUEUED'
  with connect() as c:
   c.execute('INSERT INTO tickets(id,customer_id,subject,description,claimed_amount,status,risk,created_at) VALUES (?,?,?,?,?,?,?,?)',(tid,user['id'],body.subject,body.description,effective_amount,status,','.join(flags),now))
   if body.order_code:c.execute('INSERT INTO ticket_order_links(ticket_id,order_code,customer_id) VALUES (?,?,?)',(tid,body.order_code,user['id']))
   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),tid,'customer',body.description,1,now))
-  if not flags:c.execute('INSERT INTO jobs(id,ticket_id,status,created_at,input_version) VALUES (?,?,?,?,?)',(jid,tid,'QUEUED',now,0))
+  if clarification:
+   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),tid,'assistant',REFUND_CLARIFICATION,1,now))
+  else:
+   # Do not publish a provisional review message. The worker will publish
+   # exactly one validated response (or a safe fallback) after all agents run.
+   c.execute('INSERT INTO jobs(id,ticket_id,status,created_at,input_version) VALUES (?,?,?,?,?)',(jid,tid,'QUEUED',now,0))
   register_pending(c,tid,effective_amount,flags)
   audit(c,tid,'CREATED:'+status)
  with connect() as c:
@@ -221,6 +287,22 @@ def owned(c,tid,user):
  r=c.execute('SELECT * FROM tickets WHERE id=?',(tid,)).fetchone()
  if not r or (user['role']!='admin' and r['customer_id']!=user['id']):raise HTTPException(404,'Ticket not found')
  return r
+@app.get('/tickets/{ticket_id}/agent-progress')
+def ticket_agent_progress(ticket_id: str, user=Depends(principal)):
+    """Minimal progress data; never expose agent outputs or another customer's tickets."""
+    with connect() as c:
+        ticket = owned(c, ticket_id, user)
+        rows = c.execute("""SELECT e.agent,e.event,e.created_at FROM agent_events e
+            JOIN jobs j ON j.id=e.job_id
+            WHERE e.ticket_id=? AND e.job_id=(SELECT id FROM jobs WHERE ticket_id=? ORDER BY created_at DESC,id DESC LIMIT 1)
+            ORDER BY e.created_at,e.id""", (ticket_id, ticket_id)).fetchall()
+        from backend.services.human_review import latest_for_ticket
+        return JSONResponse(
+            {'status': ticket['status'], 'events': [dict(r) for r in rows],
+             'human_review': latest_for_ticket(c, ticket_id)},
+            headers={'Cache-Control': 'no-store, max-age=0'},
+        )
+
 @app.get('/tickets')
 def tickets(user=Depends(principal)):
  with connect() as c:
@@ -260,6 +342,12 @@ def customer_refund_review_status(ticket_id: str, user=Depends(principal)):
     with connect() as c:
         owned(c, ticket_id, user)
         row = c.execute("SELECT status, amount, decided_at, execution_status FROM refund_reviews WHERE ticket_id=?", (ticket_id,)).fetchone()
+        if row is None:
+            from backend.services.auto_refund import acceptance
+            auto = acceptance(c, ticket_id)
+            if auto:
+                return {'has_review': True, 'status': 'AUTO_ACCEPTED', 'amount': auto['amount'],
+                        'decided_at': auto['accepted_at'], 'execution_status': auto['execution_status']}
     if row is None:
         return {'has_review': False}
     return {'has_review': True, 'status': row['status'], 'amount': row['amount'],
@@ -283,7 +371,11 @@ def reply(ticket_id: str, body: ReplyIn, user=Depends(principal)):
             # Prefer an explicitly stated monetary amount in the new message; never
             # interpret an order number as a refund amount.
             followup_amount = None
-            if REFUND.search(body.content) or refund_amount_from_text(body.content) is not None:
+            original_request = (ticket['subject'] or '') + ' ' + (ticket['description'] or '')
+            awaiting_refund_details = (ticket['status'] == 'AWAITING_CUSTOMER'
+                                       and ticket['claimed_amount'] is None
+                                       and bool(REFUND.search(original_request)))
+            if REFUND.search(body.content) or refund_amount_from_text(body.content) is not None or awaiting_refund_details:
                 values = {_money(m.group(1)) for m in AMOUNT.finditer(body.content)
                           if CURRENCY_CONTEXT.search(m.group(0))}
                 values.discard(None)
@@ -293,12 +385,34 @@ def reply(ticket_id: str, body: ReplyIn, user=Depends(principal)):
                     followup_amount = next(iter(values))
             screening_amount = (float(followup_amount) if followup_amount is not None
                                 else ticket['claimed_amount'])
-            flags = set(screen(body.content, screening_amount))
+            screening_text = body.content
+            # On a clarification reply, screen the supplied amount as a refund
+            # even if the customer only writes 'INR 600'.
+            if awaiting_refund_details and followup_amount is not None:
+                screening_text = 'Please refund me. ' + body.content
+            flags = set(screen(screening_text, screening_amount))
+            if awaiting_refund_details and followup_amount is None and _only_missing_refund_amount(
+                    flags, body.content, None):
+                flags.clear()
+            clarification = (awaiting_refund_details and followup_amount is None
+                             and not flags and not FOREIGN_REFUND_CURRENCY.search(body.content)
+                             and not is_refund_information_request(body.content))
+            # Missing replacement evidence must not block a policy-grounded
+            # informational follow-up. Remedy execution remains separately gated.
             if (followup_amount is not None and ticket['claimed_amount'] is not None
                     and _money(ticket['claimed_amount']) != followup_amount):
                 flags.add('REFUND_AMOUNT_UNVERIFIED')
-            if (REFUND.search(body.content) or refund_amount_from_text(body.content) is not None) and followup_amount is None and ticket['claimed_amount'] is None:
-                flags.add('REFUND_AMOUNT_UNVERIFIED')
+            if (REFUND.search(body.content) or refund_amount_from_text(body.content) is not None) and followup_amount is None and ticket['claimed_amount'] is None and not is_refund_information_request(body.content):
+                if not _only_missing_refund_amount({'REFUND_AMOUNT_UNVERIFIED'}, body.content, None):
+                    flags.add('REFUND_AMOUNT_UNVERIFIED')
+                else:
+                    clarification = not is_refund_information_request(body.content)
+                    # Same rule as create_ticket: when the only open issue is the
+                    # missing refund amount, ask for it instead of queueing agents.
+                    # Any other risk flag stays and keeps the ticket queued.
+                    if clarification and _only_missing_refund_amount(flags, body.content, None):
+                        flags.clear()
+                    awaiting_refund_details = awaiting_refund_details or clarification
             # Threshold is inclusive. Preserve a high-value review even when
             # the new claim conflicts with the original claimed amount.
             if REFUND.search(body.content) or refund_amount_from_text(body.content) is not None:
@@ -308,15 +422,21 @@ def reply(ticket_id: str, body: ReplyIn, user=Depends(principal)):
             if 'REFUND_GE_500' in flags:
                 register_pending(c, ticket_id, screening_amount, flags)
             risk = set(filter(None, (ticket['risk'] or '').split(','))) | flags
-            # A ticket already escalated must stay escalated until human review.
+            # Preserve risk flags, but run AI to provide grounded guidance.
+            # Only a completed worker or authorized human may finalize review.
             escalated = bool(risk) or ticket['status'] == 'ESCALATED'
-            status = 'ESCALATED' if escalated else 'QUEUED'
+            status = 'AWAITING_CUSTOMER' if clarification and not escalated else 'QUEUED'
+            if clarification:
+                c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',
+                          (str(uuid.uuid4()), ticket_id, 'assistant',
+                           REFUND_CLARIFICATION, 1, now))
             # Supersede any old queued jobs. Running jobs are invalidated by version.
             c.execute("UPDATE jobs SET status='SUPERSEDED', completed_at=? "
                       "WHERE ticket_id=? AND status='QUEUED'", (now, ticket_id))
-            c.execute('UPDATE tickets SET status=?, risk=?, version=version+1 WHERE id=?',
-                      (status, ','.join(sorted(risk)), ticket_id))
-            if not escalated:
+            c.execute('UPDATE tickets SET status=?, risk=?, claimed_amount=COALESCE(claimed_amount, ?), version=version+1 WHERE id=?',
+                      (status, ','.join(sorted(risk)),
+                       float(followup_amount) if followup_amount is not None else None, ticket_id))
+            if status == 'QUEUED':
                 c.execute('INSERT INTO jobs(id,ticket_id,status,created_at,input_version) '
                           'VALUES (?,?,?,?,?)',
                           (str(uuid.uuid4()), ticket_id, 'QUEUED', now, ticket['version'] + 1))
@@ -343,7 +463,11 @@ def publish(ticket_id:str,body:DecisionIn,user=Depends(principal)):
   if r['version']!=body.version:raise HTTPException(409,'Stale review')
   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),ticket_id,'admin',body.response,1,time.time()))
   c.execute("UPDATE tickets SET status='ANSWERED',version=version+1 WHERE id=?",(ticket_id,));audit(c,ticket_id,'ADMIN_PUBLISHED')
- return {'status':'ANSWERED'}
+  # Human-in-the-loop: the worker records this approval through AutoGen's
+  # UserProxyAgent (SupportReviewer) and LogAgent. Same transaction.
+  from backend.services.human_review import enqueue as enqueue_human_review
+  enqueue_human_review(c,ticket_id,user['id'],body.response)
+ return {'status':'ANSWERED','human_review':'QUEUED'}
 @app.post('/tickets/{ticket_id}/resolve')
 def customer_resolve_ticket(ticket_id: str, body: CloseTicketIn, user=Depends(principal)):
     """Ticket owner confirms support resolution; never executes a payment."""

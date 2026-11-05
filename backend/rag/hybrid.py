@@ -44,7 +44,9 @@ def citation_metadata(passage):
     source = passage.get('source', '')
     return {'id': passage.get('id'), 'source': source, 'title': source.removesuffix('.pdf').replace('_', ' '),
             'department': DEPARTMENTS.get(source, 'Unknown'), 'page': passage.get('page'),
-            'chunk': passage.get('chunk'), 'visibility': passage.get('visibility')}
+            'chunk': passage.get('chunk'), 'visibility': passage.get('visibility'),
+            'scheme': 'NovaCart Support SOP',
+            'citation_label': f"{source}, page {passage.get('page')}"}
 
 
 load_dotenv(ROOT / ".env")
@@ -232,22 +234,36 @@ class HybridRetriever:
             raise PermissionError("Internal SOP retrieval requires a separate authorized service")
         if not isinstance(query, str) or not query.strip() or k <= 0:
             return []
-        allowed = {
-            i for i, doc in enumerate(self.docs)
-            if is_approved_customer_passage(doc)
-        }
-        if not allowed:
-            return []
+        from backend.rag.customer_policy import approved_mfa_guidance
+        mfa_evidence = approved_mfa_guidance(query)
+        if mfa_evidence is not None:
+            return [dict(p, **citation_metadata(p)) for p in mfa_evidence[:k]
+                    if is_approved_customer_passage(p)]
+        # Rank the verified approved catalog using dense + BM25 + RRF.
+        # Legacy manifests may lack approved excerpts; never surface raw SOPs.
+        return self._approved_semantic_search(query, k)
+
+    def _approved_semantic_search(self, query, k):
+        from backend.rag.semantic_rank import rank_approved, normalize_vectors
+        from backend.rag.customer_policy import approved_passages
+        from threading import Lock
+        if not hasattr(self, '_approved_semantic_lock'):
+            # Initialized here to preserve compatibility with older test fakes.
+            self._approved_semantic_lock = Lock()
+        with self._approved_semantic_lock:
+            if not hasattr(self, '_approved_semantic_docs'):
+                docs = approved_passages()
+                response = self.client.embeddings.create(
+                    model=self.model, input=[doc['text'] for doc in docs])
+                ordered = sorted(response.data, key=lambda item: item.index)
+                if len(ordered) != len(docs):
+                    raise ValueError('Approved embedding response count mismatch')
+                self._approved_semantic_vectors = normalize_vectors(
+                    [item.embedding for item in ordered], len(docs))
+                self._approved_semantic_docs = docs
         response = self.client.embeddings.create(model=self.model, input=query)
-        query_vector = np.asarray([response.data[0].embedding], dtype="float32")
-        faiss.normalize_L2(query_vector)
-        _, dense_ids = self.idx.search(query_vector, len(self.docs))
-        dense_ranking = [int(i) for i in dense_ids[0] if int(i) in allowed]
-        bm_scores = self.bm.get_scores(tokenize(query))
-        lexical_ranking = sorted(allowed, key=lambda i: (-float(bm_scores[i]), i))
-        scores = {}
-        for ranking in (dense_ranking, lexical_ranking):
-            for rank, i in enumerate(ranking, 1):
-                scores[i] = scores.get(i, 0.0) + 1.0 / (60 + rank)
-        ranked = sorted(scores, key=lambda i: (-scores[i], i))
-        return [self.docs[i] for i in ranked[:k]]
+        matches = rank_approved(query, self._approved_semantic_docs,
+                                response.data[0].embedding,
+                                self._approved_semantic_vectors, k=k)
+        return [dict(doc, **citation_metadata(doc)) for doc in matches]
+

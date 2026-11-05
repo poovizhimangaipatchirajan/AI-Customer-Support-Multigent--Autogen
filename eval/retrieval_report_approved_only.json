@@ -1,0 +1,290 @@
+{
+  "metrics": {
+    "cases": 30,
+    "k": 4,
+    "source_recall_at_k": 0.6666666666666666,
+    "mrr_at_k": 0.6666666666666666,
+    "source_ndcg_at_k": 0.6666666666666666,
+    "evidence_phrase_hit_at_k": 0.3333333333333333,
+    "internal_leaks": 0,
+    "mode": "live:approved_only"
+  },
+  "cases": [
+    {
+      "id": "shipping_fbn",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "shipping_dmf",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "returns_fashion",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "returns_electronics",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "returns_beauty",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "warranty_platform",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "warranty_extended",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "account_high_risk",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "account_card",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "payments_upi",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "payments_decline",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "payments_3ds",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "01_shipping_label",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "01_delivery",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "01_tracking",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "01_dispatch",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "02_return",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "02_refund",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "02_apparel",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "03_warranty",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "03_replacement",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "03_product",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "03_assurance",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "04_password",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "04_account",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "04_login",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "04_verification",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "05_payment",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": true,
+      "internal_leak": false
+    },
+    {
+      "id": "05_billing",
+      "rank": null,
+      "source_hit": false,
+      "reciprocal_rank": 0.0,
+      "ndcg": 0.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    },
+    {
+      "id": "05_transaction",
+      "rank": 1,
+      "source_hit": true,
+      "reciprocal_rank": 1.0,
+      "ndcg": 1.0,
+      "evidence_hit": false,
+      "internal_leak": false
+    }
+  ],
+  "notes": [
+    "Source-level relevance is a proxy, not passage-level precision.",
+    "Evidence phrase matching is an automated retrieval check, not answer faithfulness.",
+    "No LLM answer correctness or claim-level citation assessment is performed.",
+    "Review false negatives: PDF table extraction can split words or phrases."
+  ]
+}

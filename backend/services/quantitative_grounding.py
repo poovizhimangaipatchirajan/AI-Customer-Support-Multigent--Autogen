@@ -13,7 +13,7 @@ _VALUE = re.compile(
     re.I,
 )
 _POLICY = re.compile(
-    r"\b(?:fee|charge|cost|limit|cap|threshold|discount|refund|"
+    r"\b(?:fee|charge|cost|limit|cap|threshold|discount|refunds?|"
     r"return|warranty|shipping|delivery|replacement|penalty|"
     r"tax|cashback|commission|deduction|eligible|eligibility)\b",
     re.I,
@@ -49,11 +49,18 @@ _CUSTOMER_AMOUNT = re.compile(
     re.I,
 )
 
+# A restated customer amount ("your order total was ₹X", "your product cost
+# ₹X", "you paid ₹X"). Exempt only when the same value appears in the
+# customer's own message (checked by the callers), never as policy.
 _CASE_AMOUNT = re.compile(
-    r"\b(?:your|the customer.s|customer-reported)\s+"
-    r"(?:(?:order|refund)\s+)?"
+    r"(?:\b(?:your|the customer.s|customer-reported)\s+"
+    r"(?:(?:requested\s+)?(?:order|refund)\s+)?"
     r"(?:amount|price|value|total|request)\s+"
     r"(?:is|was|of|is\s+for|was\s+for)\s*"
+    r"|\b(?:your|the)\s+(?:product|item|order|purchase)(?:'s|’s)?\s+"
+    r"(?:cost|costs|price|total|value|amount|was\s+priced\s+at|is\s+priced\s+at|priced\s+at|worth)"
+    r"(?:\s+(?:is|was|of))?\s*"
+    r"|\byou\s+(?:paid|spent)\s*)"
     r"(?:₹\s*|INR\s*|Rs\.?\s*)\d[\d,]*(?:\.\d+)?\b",
     re.I,
 )

@@ -5,7 +5,9 @@ These heuristic labels do not replace QueryAgent output or backend risk checks.
 import re
 
 CATEGORIES = (
-    ('Payments & billing', r'\b(?:payment|billing|charg(?:e|ed|es|ing)|transaction|invoice|debited?|double[ -]?charg(?:e|ed)|triple[ -]?charg(?:e|ed)|bank|card)\b'),
+    # Billing wording only: a device that 'does not charge' or a 'charging cable'
+    # is not a payment issue.
+    ('Payments & billing', r'\b(?:payments?|billing|billed|charged|charges|overcharg\w*|charge\s+(?:on|to)\s+my|transaction|invoice|debited?|double[ -]?charg(?:e|ed)|triple[ -]?charg(?:e|ed)|bank|card)\b'),
     ('Returns & refunds', r'\b(?:refund|returns?|reimbursement|money back)\b'),
     ('Account & login', r'\b(?:password|log[ -]?in|account|otp|sign[ -]?in|reset password)\b'),
     ('Shipping & delivery', r'\b(?:ship(?:ping|ment)?|deliver(?:y|ed)?|tracking|parcel|courier|order delay|arriv(?:e|ed|al)|where is my order)\b'),

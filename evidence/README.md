@@ -96,7 +96,7 @@ Screenshots to capture:
 
 Run from the repository root:
 
-    python -m pytest tests/test_invoice_grounding.py -q
+    python -m pytest tests/test_grounding_guard.py -q -k invoice
 
 See the root README.md for application startup instructions.
 ## Streamlit UI Evidence

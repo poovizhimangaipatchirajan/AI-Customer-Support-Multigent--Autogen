@@ -14,12 +14,24 @@ FixFlow AI is a local-first customer-support application built with a **FastAPI 
 - SQLite-backed tickets, audit records, AI results, and durable refund-review decisions.
 - Worker leases, heartbeats, retry/recovery handling, stale-result protection, and idempotent processing safeguards.
 - Administrative queue, draft review/publishing, audit inspection, and CSV export.
+- **Human-in-the-loop with AutoGen `UserProxyAgent`:** when a support specialist approves an escalated reply, the worker runs a review conversation in which `SupportReviewer` (a `UserProxyAgent`) states the human decision and LogAgent records it; the UI shows it as a fifth workflow step.
+- Admin dashboard: tickets per category, resolved vs escalated, average urgency.
 
 ## Safety and refund rules
 
 - **Refund requests of ₹500 or more, including exactly ₹500, require backend-enforced human review.** This includes refund requests introduced in follow-up messages.
 - Fraud, legal, and payment-dispute concerns are escalated independently of the amount.
 - The application **does not execute real refunds or payment transactions**.
+
+### Refund flow
+
+| Request | Automatic checks | Outcome |
+|---|---|---|
+| Damaged/defective item, **under ₹500** | Clear amount, no risk flags, linked order owned by the customer and **delivered**, amount ≤ order total, a genuine photo uploaded, order never auto-refunded, **≤ 1 automatic acceptance per customer per 365 days** | All pass → **accepted for processing** without human review (ticket Answered, refund status "accepted automatically"). Any fail → asked for details or human review |
+| Any refund **₹500 or more** | Same order and evidence checks | **Always human review**: admin assessment and APPROVED/REJECTED decision |
+| Fraud, legal threat, payment dispute | — | **Always human review**, any amount |
+
+Photos are confirmed as genuine uploaded images, not inspected for content; the per-customer annual limit is the fraud control. Every acceptance and decision is audited and records `execution_status: NOT_CONFIGURED`. A production deployment would add the payment provider's refund API (idempotent, with transaction reference) before telling customers a refund was initiated, plus sampling audits of automatic acceptances.
 - AI answers should be grounded in approved evidence and must not invent order status, refund status, payment outcomes, or delivery estimates.
 - Internal-only policy material must not be disclosed to customers; customer records must remain isolated by account.
 - Public web search must not disclose private customer information.
@@ -93,7 +105,7 @@ flowchart TD
 
 ## Local setup — Windows CMD
 
-Requirements: a compatible Python environment, dependencies from `requirements.txt`, and the configured local environment variables. Use the project's existing virtual environment if it is already working; do not recreate it unnecessarily.
+Requirements: Python 3.11, the backend and frontend dependency files (`backend/requirements.txt`, `frontend/requirements.txt`), and the configured local environment variables. Use the project's existing virtual environment if it is already working; do not recreate it unnecessarily.
 
 ```cmd
 cd C:\Users\Admin\Desktop\nexora\fixflow-ai
@@ -101,10 +113,12 @@ venv\Scripts\activate
 
 pip install -r backend/requirements.txt
 pip install -r frontend/requirements.txt
-
+copy .env.example .env
 ```
 
-Keep API keys and credentials in local environment configuration. **Never commit `.env`, SQLite databases, local mailbox contents, or credentials.** Refer to the project's environment template when available; do not copy real values into documentation.
+Edit `.env` and set `OPENAI_API_KEY` (and the SMTP values for email verification). The frontend reads the backend address from `FIXFLOW_API_URL` (default `http://127.0.0.1:8000`); no backend URL is hardcoded. `backend/requirements.txt` and `frontend/requirements.txt` are the per-image lists used by Docker.
+
+Keep API keys and credentials in local environment configuration. **Never commit `.env`, SQLite databases, local mailbox contents, or credentials.**
 
 ### Start the API
 
@@ -118,15 +132,14 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 
 ### Start the frontend
 
-The Streamlit entry point is **`frontend/app.py`**. A root-level `app.py` is **not** an architectural defect. From the repository root, use the tested project-relative command below; when inside `frontend/`, the equivalent entry-point form is `streamlit run app.py` (subject to the same environment and import configuration). No wrapper file is required.
+From the repository root, `streamlit run app.py` starts the UI with one command. The root `app.py` is a thin launcher for the Streamlit UI in `frontend/app.py`.
 
 In terminal 2:
 
 ```cmd
 cd C:\Users\Admin\Desktop\nexora\fixflow-ai
 venv\Scripts\activate
-set FIXFLOW_API_URL=http://127.0.0.1:8000
-python -m streamlit run frontend/app.py --server.address 127.0.0.1 --server.port 8501
+streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
 
 Open **http://127.0.0.1:8501**.
@@ -145,51 +158,102 @@ For a fresh installation, build the policy index using the project's existing co
 
 ## Local test validation
 
-### Latest full regression (reported 2026-11-03)
+### Test layout
 
-Run the full project test suite from the repository root:
+`tests/` holds **23 feature-grouped files** (899 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+
+| File | Covers |
+| --- | --- |
+| `test_auth_accounts.py` | Registration, verification, login, sessions, evidence-upload security |
+| `test_risk_screening.py` | ₹500 inclusive threshold, fraud/legal/payment-dispute flags, multilingual risk, amount attribution |
+| `test_refund_workflow.py` | Refund clarification, follow-ups, approval prerequisites, review decisions, case closure |
+| `test_auto_refund.py` | Under-₹500 automatic acceptance and its one-per-customer-per-year limit |
+| `test_grounding_return_windows.py`, `test_grounding_guard.py`, `test_quantitative_grounding.py` | Return-window anchors, category windows, category-membership repair, numeric claims |
+| `test_evidence_quality.py`, `test_customer_evidence_domains.py` | Citation sufficiency per policy domain, cited-text support, evidence fallbacks |
+| `test_retrieval.py`, `test_customer_index_visibility.py` | Hybrid FAISS + BM25 + RRF ranking, approved-index validation, internal-SOP isolation |
+| `test_approved_only_lane.py` | Approved-only index runtime (run in its own process, see below) |
+| `test_agents_prompts.py` | Four-agent prompts, structured citation handoff |
+| `test_human_review.py` | Human-in-the-loop: `UserProxyAgent` records the specialist's decision; LogAgent cannot alter it; retries and failure are audited |
+| `test_worker.py` | Leases, recovery, retry exhaustion, fail-closed publication |
+| `test_api_journeys.py` | End-to-end customer/admin API journeys, customer isolation |
+| `test_help_center.py`, `test_mcp_web_search.py` | Help Center answers, MCP tools, restricted web search |
+| `test_logging_ui.py` | Complaint-log columns and CSV, ticket classification, UI error handling |
+| `test_scenarios.py` | Offline buildathon and realistic customer scenarios |
+| `test_buildathon_live_six_scenarios.py` and 3 other live files | **Opt-in paid** live runs (skipped by default) |
+| `tests/e2e/test_screenshot_journeys.py` | **Opt-in** Playwright browser journeys against the running Docker stack; saves the numbered screenshots in `evidence/screenshots/` |
+
+### Run the regression (PowerShell, from the project root)
 
 ```powershell
-python -m pytest tests --tb=short
+python -m pytest -q
+$env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/test_approved_only_lane.py; Remove-Item Env:FIXFLOW_CUSTOMER_INDEX_MODE
 ```
 
-| Validation | Latest reported result |
+| Batch (run 2026-11-05) | Result |
 | --- | --- |
-| **Full pytest regression** | **581 passed, 14 skipped, 4 warnings, 0 failures** |
-| Live AI/RAG, MCP, and Serper integration | Previously exercised in targeted local checks; production availability is not implied |
+| Full offline suite | **899 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Approved-only lane | **35 passed** |
 
-The pytest figures are the latest results reported during local development; they were not rerun for this documentation change. Skipped tests are not counted as passes.
+### Live acceptance (opt-in, uses OpenAI)
 
-### Earlier targeted validation (historical)
+```powershell
+$env:FIXFLOW_RUN_BUILDATHON_LIVE = "1"; $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q -s tests/test_buildathon_live_six_scenarios.py
+```
 
-Earlier local checks included lease-hardening (**12 passed**) and security-gate (**6 passed**) targeted runs, as well as a prior **247-pass** regression. These historical results may overlap with the latest full suite and should not be added to its totals.
+| Scenario (live, approved-only index, 2026-11-05) | Outcome |
+| --- | --- |
+| Where is my order? | ANSWERED, cites the in-transit and delivered-not-received shipping passages; no invented ETA or tracking |
+| Return shoes bought last week | ANSWERED (occasionally routed to review when the agent flags a case decision); 14-day fashion window, conditions, no invented start date |
+| Forgot password | ANSWERED, identity verification required |
+| Broken blender, replacement | ESCALATED to human review (product category and remedy need a human decision) |
+| Charged three times, bank and lawyer | ESCALATED (`LEGAL`, `PAYMENT_DISPUTE`) |
+| Gift cards for 500 employees | ESCALATED, no citations (no matching policy) |
+| TC02 fashion return / TC07 damaged cable ₹299 / TC08 wrong-size headphones | ANSWERED / ESCALATED / ESCALATED |
 
-## RC1 validation scope
+ANSWERED is never proof that a refund or replacement happened; no payment is executed.
 
-The final security-gate checks covered:
+### Retrieval evaluation (`python -m eval.evaluate --mode live --k 4`)
 
-1. **Cross-customer isolation:** unauthorized customers cannot access another customer's ticket data.
-2. **Refund follow-up enforcement:** refund requests at the ₹500 boundary are routed for human approval, including follow-ups.
-3. **Process-restart durability:** persisted review state and worker recovery were exercised across separate Python processes.
+30 labelled questions in `eval/golden_cases.json`, scored on the **approved-only index the app uses** (report: `eval/retrieval_report_approved_only.json`).
 
-### Additional targeted test records
+| Question group | Result |
+| --- | --- |
+| 20 specific questions answerable from approved customer passages | **20/20 correct source in top 4** |
+| 4 questions on internal or excluded topics (fulfilment channels, dispatch manifests, UPI rails, 3-D Secure) | Correctly **no customer passage returned** |
+| 6 vague template questions (e.g. "What does the policy say about refund?") | Abstained: several passages tie, so the conservative ranker returns none rather than guess |
+| Internal-SOP leaks | **0** |
 
-- `python -m pytest -q tests/test_phase10_consolidated.py --tb=short`: **7 passed** in the earlier reported run with `FIXFLOW_LOCAL_DEMO=0`.
-- `python -m pytest -q tests/test_resolved_evidence_upload.py --tb=short`: **1 passed** in the earlier reported run.
-- These targeted counts may overlap with the full regression; they are historical records, not additional passes.
+Overall source recall is 67% because the golden set was written against the full SOP PDFs; the offline keyword baseline over all customer chunks (`--mode offline`) reaches 90% recall without the approval and abstention safeguards.
 
-### Six mandatory demo cases
+### Browser screenshots (Playwright, opt-in, uses OpenAI through the running worker)
 
-| Scenario | Reported outcome | Evidence |
-| --- | --- | --- |
-| Late delivery | ANSWERED, 2 citations | `tests/test_buildathon_live_six_scenarios.py` |
-| Refund-policy request | ANSWERED, 3 citations | same |
-| Forgotten password | ANSWERED, 1 citation | same |
-| Broken blender | ANSWERED, 1 citation | same |
-| Triple charge / legal threat | ESCALATED | same |
-| Unsupported custom gift cards | ESCALATED, no citations | same |
+```powershell
+docker compose up -d
+$env:FIXFLOW_RUN_E2E = "1"; python -m pytest tests/e2e -q
+```
 
-These reported outcomes describe the support response; **ANSWERED is not proof that a refund or replacement transaction occurred**. No real payment execution is implemented.
+Each run creates fresh fictional accounts directly in the Docker database (no registration email is sent) and writes `01_…` to `20_…` screenshots to `evidence/screenshots/`.
+
+### Load and timeout handling
+
+| Situation | Behaviour |
+| --- | --- |
+| Many tickets at once | Ticket creation only queues work; one background worker processes tickets in order, and the UI refreshes progress every 2 s |
+| Slow or stuck AI call | Each model call is limited to 45 s (2 retries) and each ticket's whole agent run to 150 s; a timed-out run is retried once from a clean state, then escalated to human review |
+| Worker crash | 180 s lease with heartbeat; the job is requeued once, then escalated; never processed twice |
+| Help Center provider slow or rate-limited | 10 s embedding limit; the user gets "The Help Center is busy right now…" (HTTP 503 + Retry-After) |
+| Database busy (SQLite lock) | HTTP 503 "The service is busy…" with Retry-After instead of a server error |
+| Frontend waiting on the API | 30 s limit and a clear timeout or busy message, never a crash |
+
+Scaling beyond a demo would mean PostgreSQL and several worker processes; the single worker is a deliberate choice that keeps ordering and recovery simple.
+
+### Known limitations
+
+- **Late or undelivered orders** are covered by one curated passage (in transit within the estimated delivery date is not treated as lost; past it, contact support for verification). There is still no live tracking, so replies never state an order's actual status.
+- **Product-to-category mapping is not in the approved policy.** Replies never claim which category an item belongs to; a deterministic repair removes such claims and says the category is confirmed during verification.
+- **Short wrong-size/colour exchange questions (TC08) can retrieve no passage** above the similarity floor; the case escalates honestly instead of citing the wrong policy. Thresholds are deliberately not lowered.
+- `06_Escalations_and_Soft_Skills_SOP.pdf` is internal guidance and is intentionally excluded from customer retrieval and from the 30-case evaluation set in `eval/golden_cases.json`.
+- Photos are confirmed as genuine images but never inspected for content; no payment provider is connected.
 
 ### Two additional safety cases
 
@@ -214,42 +278,35 @@ See `evidence/screenshots/` for the canonical screenshot inventory. Add any veri
 
 ## Submission screenshot gallery
 
-Keep **one canonical screenshot directory**: `evidence/screenshots/`. The names below are transcribed from the screenshot-folder view shared in this conversation. Links assume `.png` extensions (verified for some files in the available project copy); confirm the exact filenames and extensions on your machine before committing. Images are evidence of the visible UI only, not independent proof of backend safety.
+All screenshots in `evidence/screenshots/` are produced by the Playwright journeys in `tests/e2e/test_screenshot_journeys.py` against the running Docker stack, using fictional accounts and orders. Older captures are kept in `evidence/screenshots/old/`. Images show the visible UI only; backend safety is proven by the automated tests above.
 
-| Area | Screenshot | What it illustrates |
+| # | Screenshot | What it shows |
 | --- | --- | --- |
-| Authentication and onboarding | [Registration customer.png](evidence/screenshots/Registration%20customer.png) | Customer registration |
-| Authentication and onboarding | [Verify Email.png](evidence/screenshots/Verify%20Email.png) | Email verification |
-| Customer portal | [Dashboard_Customer.png](evidence/screenshots/Dashboard_Customer.png) | Customer dashboard |
-| Customer portal | [My Tickets Section.png](evidence/screenshots/My%20Tickets%20Section.png) | My tickets |
-| Ticket lifecycle | [Ticket raised.png](evidence/screenshots/Ticket%20raised.png) | Ticket submission confirmation |
-| Customer support | [Helpcentre query.png](evidence/screenshots/Helpcentre%20query.png) | Help-centre query |
-| Returns and policies | [ReturnTicket.png](evidence/screenshots/ReturnTicket.png) | Return ticket |
-| Returns and policies | [ReturnWindow.png](evidence/screenshots/ReturnWindow.png) | Return-window policy answer |
-| Returns and policies | [fashionproduct_returnWindow.png](evidence/screenshots/fashionproduct_returnWindow.png) | Fashion return-window answer |
-| Grounded RAG | [policyreferences.png](evidence/screenshots/policyreferences.png) | Policy references and citations |
-| Customer support | [replacementquery.png](evidence/screenshots/replacementquery.png) | Replacement query |
-| Safety and escalation | [damaged Product_humanreview.png](evidence/screenshots/damaged%20Product_humanreview.png) | Damaged-product review case |
-| Safety and escalation | [WithoutEvidence Claim.png](evidence/screenshots/WithoutEvidence%20Claim.png) | Claim without supporting evidence |
-| Admin review | [Human Review.png](evidence/screenshots/Human%20Review.png) | Human-review screen |
-| Admin review | [humanReview.png](evidence/screenshots/humanReview.png) | Human-review details |
-| Admin review | [Resolve Option after reply.png](evidence/screenshots/Resolve%20Option%20after%20reply.png) | Admin resolution option |
-| Ticket lifecycle | [Resolved Ticket.png](evidence/screenshots/Resolved%20Ticket.png) | Resolved ticket |
-| Auditability | [Audit Log.png](evidence/screenshots/Audit%20Log.png) | Audit log |
-| Section 7 logging | [CSV File.png](evidence/screenshots/CSV%20File.png) | CSV complaint log |
-| Section 7 logging | [Download CSV.png](evidence/screenshots/Download%20CSV.png) | CSV export |
-| Validation reference | [SixTestcasesMentioned in Statement.png](evidence/screenshots/SixTestcasesMentioned%20in%20Statement.png) | Six required demo cases reference |
-
-### Recommended evidence walkthrough
-
-The README links above allow a reviewer to follow registration and verification, customer dashboard, ticket creation, grounded policy answers, human review, ticket resolution, audit logs, and CSV export. The **six mandatory test scenarios** are documented separately in the test table; the screenshot labeled `SixTestcasesMentioned in Statement` is a reference image, not six individual execution screenshots.
-
-For human-review cases, screenshots do **not** imply a refund or replacement was executed. The application deliberately does not execute real financial transactions.
+| 1 | [Registration and login](evidence/screenshots/01_registration_and_login.png) | Login / registration with email verification |
+| 2 | [Customer home](evidence/screenshots/02_customer_home.png) | Customer dashboard |
+| 3 | [Resolved: where is my order](evidence/screenshots/03_resolved_where_is_my_order.png) | **Resolved** (green), cited shipping policy, no invented ETA |
+| 4 | [Answered: return shoes](evidence/screenshots/04_resolved_return_shoes.png) | 14-day fashion window and conditions, four agent steps |
+| 5 | [Answered: forgot password](evidence/screenshots/05_resolved_forgot_password.png) | Identity-verification guidance |
+| 6 | [Escalated: broken blender](evidence/screenshots/06_escalated_broken_blender.png) | **Human review** (red), no replacement promised |
+| 7 | [Escalated: charged three times + lawyer](evidence/screenshots/07_escalated_billing_lawyer.png) | Legal threat and payment dispute escalated |
+| 8 | [Escalated: corporate gift cards](evidence/screenshots/08_escalated_unsupported_giftcards.png) | No matching policy, honest reply, no citations |
+| 9 | [Own case 1: auto refund under ₹500](evidence/screenshots/09_own_case_auto_refund_under_500.png) | Delivered order + photo → accepted automatically, no payment executed ([sample orders](evidence/screenshots/09a_customer_sample_orders.png)) |
+| 10 | [Own case 2: refund ₹600](evidence/screenshots/10_own_case_refund_600_human_review.png) | ₹500+ always requires human review |
+| 11 | [Help Center](evidence/screenshots/11_help_center_no_ticket.png) | Grounded answer with source, no ticket created |
+| 12 | [Prompt injection](evidence/screenshots/12_prompt_injection_blocked.png) | Escalated safely, nothing disclosed or approved |
+| 13 | [Admin: agent workflow](evidence/screenshots/13_admin_agent_workflow.png) · [agent outputs](evidence/screenshots/13b_admin_agent_outputs.png) | Each agent's step and its own output |
+| 14 | [Admin: escalation queue](evidence/screenshots/14_admin_escalation_queue.png) | Escalated tickets with reasons |
+| 15 | [Admin: refund review decision](evidence/screenshots/15_admin_refund_review_decision.png) | Evidence inspected, assessment, APPROVED, no payment executed |
+| 16 | [Human-in-the-loop approval](evidence/screenshots/16_admin_human_in_the_loop_approval.png) | **SupportReviewer** (`UserProxyAgent`) step after the four agents |
+| 17 | [Customer refund status](evidence/screenshots/17_customer_refund_status_after_approval.png) | Approved review shown to the customer, no payment executed |
+| 18 | [Admin dashboard](evidence/screenshots/18_admin_dashboard.png) | Totals, average urgency, status and category charts |
+| 19 | [Complaint log table](evidence/screenshots/19_complaint_log_table.png) | All Section 7 columns, CSV download |
+| 20 | [Complaint log CSV](evidence/screenshots/20_complaint_log_csv.png) | Downloaded CSV: readable outcome and escalation reasons |
 
 ### Screenshot folder and Git hygiene
 
 - Do not maintain a second root-level `screenshots/` folder. Consolidate confirmed submission images into `evidence/screenshots/` after comparing duplicates; do not delete originals before checking them.
-- **Important:** the inspected `.gitignore` includes a `screenshots/` pattern, which can also ignore `evidence/screenshots/`. Before a future Git commit, check `git check-ignore -v evidence/screenshots/"Audit Log.png"` (adjust the filename to match a real image). If ignored, update the ignore rules deliberately or explicitly stage approved screenshots. No Git changes are performed by this README update.
+- `.gitignore` explicitly allows `evidence/screenshots/*.png|jpg|jpeg` and ignores local backups (`*.bak*`, `local_customer_index.backup-*/`), regression logs, `docker_data/`, private evidence, `.env` and complaint-log CSV/XLSX exports.
 - Never include `.env`, SQLite databases, private customer uploads, `private_evidence/`, virtual environments, or API credentials in the submission.
 - Check screenshot contents for customer names, emails, order IDs, and other private information; redact or replace sensitive captures before publishing.
 
@@ -260,9 +317,9 @@ For human-review cases, screenshots do **not** imply a refund or replacement was
 | Four AutoGen agents, each with a clear single responsibility | [Four-agent workflow](#four-agent-workflow) and backend agent implementation |
 | KnowledgeAgent uses documents and identifies sources | [Hybrid RAG and supporting services](#hybrid-rag-and-supporting-services) and policy-reference screenshots |
 | ResolutionAgent avoids unsupported policies | [Safety and refund rules](#safety-and-refund-rules), grounding checks and validation cases |
-| Every ticket logged with required Section 7 fields | SQLite persistence and CSV complaint-log screenshots; verify the actual exported CSV headers against the assignment |
+| Every ticket logged with required Section 7 fields | Admin **Audit logs** page shows the complaint log as a table with CSV download (`/admin/rubric/complaints.csv`). Columns: ticket_id, timestamp, customer_name / order_id, complaint, category, urgency, sentiment, kb_sources, response, status, outcome (Resolved / Escalated / Pending), escalation_reason |
 | Complicated cases marked Escalated with a reason | Human-review screenshots, ticket audit trail and escalation tests |
-| Streamlit starts with one command | [Start the frontend](#start-the-frontend): `python -m streamlit run frontend/app.py` from project root |
+| Streamlit starts with one command | [Start the frontend](#start-the-frontend): `streamlit run app.py` from project root (API and worker run as separate processes) |
 | No API keys committed | `.env.example`, `.gitignore` review and pre-push secret scan |
 | README explains setup, execution, architecture, screenshots | This README and the screenshot gallery above |
 

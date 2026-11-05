@@ -28,7 +28,7 @@ def _digest(documents):
 
 def validated_documents():
     docs = approved_passages()
-    if len(docs) != 12 or len({d['id'] for d in docs}) != len(docs):
+    if len(docs) != len(approved_passages()) or len({d['id'] for d in docs}) != len(docs):
         raise ValueError('Approved customer passage count/identity mismatch')
     if not all(is_approved_customer_passage(d) for d in docs):
         raise ValueError('Unapproved customer passage')
@@ -81,7 +81,7 @@ def verify_index(directory):
     docs = manifest['chunks']
     if (manifest.get('kind') != 'approved-customer-only-v1' or
         manifest.get('digest') != _digest(docs) or
-        len(docs) != 12 or len({d.get('id') for d in docs}) != len(docs) or
+        len(docs) != len(approved_passages()) or len({d.get('id') for d in docs}) != len(docs) or
         {d['id'] for d in docs} != {d['id'] for d in validated_documents()} or
         not all(is_approved_customer_passage(d) for d in docs)):
         raise ValueError('Customer index approval/integrity validation failed')
@@ -156,35 +156,50 @@ class CustomerHybridRetriever:
         self.embed_query = embed_query
 
     def search(self, query, k=4, include_internal=False):
-        import faiss
-        import numpy as np
         if include_internal:
             raise PermissionError('Customer retrieval cannot expose internal SOPs')
         if not isinstance(query, str) or not query.strip() or k <= 0:
             return []
+        from backend.rag.customer_policy import approved_mfa_guidance
+        mfa_evidence = approved_mfa_guidance(query)
+        if mfa_evidence is not None:
+            return mfa_evidence[:k]
+
+        # Conservative pre-embedding relevance check. An offline embedding
+        # callback may return a valid policy vector for *any* input, so dense
+        # similarity alone cannot reject clearly out-of-domain questions.
+        # Use the approved catalog only; never consult internal SOP content.
+        from backend.rag.semantic_rank import meaningful_tokens
+
+        def normalize_relevance_terms(terms):
+            aliases = {
+                "covered": "cover",
+                "covering": "cover",
+                "covers": "cover",
+                "coverage": "cover",
+            }
+            return {aliases.get(term, term) for term in terms}
+
+        query_terms = normalize_relevance_terms(meaningful_tokens(query))
+
+        approved_terms = set().union(
+            *(
+                normalize_relevance_terms(meaningful_tokens(d["text"]))
+                for d in self.docs
+            )
+        )
+        # No lexical evidence at all: abstain instead of making a paid API call.
+        # This is deliberately conservative; synonym-only questions may require
+        # a future reviewed vocabulary/semantic-intent fallback.
+        if not query_terms or not (query_terms & approved_terms):
+            return []
+
         if self.embed_query is None:
             raise RuntimeError('Query embedding provider not configured')
-        query_tokens = set(tokenize(query))
-        # Stopwords cannot alone establish customer-policy relevance.
-        stop = {"the", "and", "for", "with", "what", "how", "does", "can", "are", "you", "your", "please", "tell", "about", "policy", "novacart"}
-        meaningful = query_tokens - stop
-        if not meaningful:
-            return []
-        eligible = {i for i, doc in enumerate(self.docs)
-                    if meaningful.intersection(tokenize(doc["text"]))}
-        if not eligible:
-            return []
-        vector = _validate_vectors([self.embed_query(query)], 1)
-        if vector.shape[1] != self.index.d:
-            raise ValueError('Query embedding dimension mismatch')
-        faiss.normalize_L2(vector)
-        _, ids = self.index.search(vector, len(self.docs))
-        dense = [int(i) for i in ids[0] if int(i) in eligible]
-        scores = self.bm.get_scores(tokenize(query))
-        lexical = sorted(eligible, key=lambda i: (-float(scores[i]), i))
-        fused = {}
-        for ranking in (dense, lexical):
-            for rank, idx in enumerate(ranking, 1):
-                fused[idx] = fused.get(idx, 0) + 1 / (RRF_K + rank)
-        ranked = sorted(fused, key=lambda i: (-fused[i], i))
-        return [self.docs[i] for i in ranked[:k] if is_approved_customer_passage(self.docs[i])]
+        from backend.rag.semantic_rank import rank_approved
+        vector = self.embed_query(query)
+        # The approved-only index already contains exactly the validated catalog.
+        # Reconstruct approved vectors for shared hybrid fusion and semantic
+        # evidence validation. No question-specific routing or lexical gate.
+        document_vectors = [self.index.reconstruct(i) for i in range(len(self.docs))]
+        return rank_approved(query, self.docs, vector, document_vectors, k=k)
