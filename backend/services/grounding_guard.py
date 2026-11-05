@@ -112,11 +112,34 @@ def _supported_doa_eligibility(clause, texts):
 # Phrasings that assert purchase/delivery as the start of a return window.
 # "within N days of X" is the original form; "N-day return window from X" and
 # "within N days after X" assert the same unsupported start point.
+# Any stated starting point for a return window (rule 25): purchase,
+# delivery, receipt, arrival, dispatch/shipment or order date, as a noun
+# ("14 days from receipt") or a verb ("14 days after you receive it").
+_ANCHOR_NOUNS = r"(purchase|delivery|receipt|arrival|dispatch|shipment|order(?:\s+date)?)"
+_ANCHOR_VERBS = (r"(receive[sd]?|receiving|arrives?|arrived|is\s+delivered|was\s+delivered|"
+                 r"ships?|shipped|is\s+dispatched|was\s+dispatched|purchased|bought|ordered)")
 _ANCHORED_WINDOW_PATTERNS = (
-    re.compile(r"\b(?:within|in)\s+(\d+)\s+days?\s+of\s+(purchase|delivery)\b", re.I),
+    re.compile(r"\b(?:within|in)\s+(\d+)\s+days?\s+of\s+(?:the\s+)?(?:date\s+of\s+)?" + _ANCHOR_NOUNS + r"\b", re.I),
     re.compile(r"\b(\d+)[\s-]*days?\b(?:\s+(?:return\s+)?(?:window|period))?"
-               r"\s+(?:from|after)\s+(?:the\s+)?(?:date\s+of\s+)?(purchase|delivery)\b", re.I),
+               r"\s+(?:from|after|following)\s+(?:the\s+)?(?:date\s+of\s+|day\s+of\s+)?" + _ANCHOR_NOUNS + r"\b", re.I),
+    re.compile(r"\b(\d+)[\s-]*days?\b[^.!?]{0,40}?\b(?:after|from|once|when|since|starting\s+when)\s+"
+               r"(?:the\s+day\s+)?(?:you\s+|it\s+|they\s+|the\s+\w+\s+|your\s+\w+\s+)?" + _ANCHOR_VERBS + r"\b", re.I),
 )
+# Word family per anchor, used to look for the same starting point in evidence.
+_ANCHOR_FAMILY = (
+    ('purchas', 'purchase'), ('bought', 'purchase'), ('order', 'order'),
+    ('deliver', 'delivery'), ('receipt', 'receipt'), ('receiv', 'receipt'),
+    ('arriv', 'arrival'), ('dispatch', 'dispatch'), ('ship', 'dispatch'),
+)
+_FAMILY_PATTERN = {
+    'purchase': r"purchas\w*|bought", 'order': r"order(?:ed|\s+date)?", 'delivery': r"deliver\w*",
+    'receipt': r"receipt|receiv\w*", 'arrival': r"arriv\w*", 'dispatch': r"dispatch\w*|ship\w*",
+}
+
+
+def _anchor_family(word):
+    word = re.sub(r"^(?:is|was)\s+", "", word.lower())
+    return next(family for prefix, family in _ANCHOR_FAMILY if word.startswith(prefix))
 
 
 def _return_window_anchor_issue(sentence, texts):
@@ -124,14 +147,16 @@ def _return_window_anchor_issue(sentence, texts):
     match = next((m for m in (pat.search(sentence) for pat in _ANCHORED_WINDOW_PATTERNS) if m), None)
     if not match or not re.search(r"\breturn(?:s|ed|ing)?\b", sentence, re.I):
         return None
-    anchor = match.group(2).lower()
+    anchor = _anchor_family(match.group(2))
+    family = _FAMILY_PATTERN[anchor]
     for text in texts:
+        # The same duration explicitly tied to the same starting point in the passage.
         if re.search(r"\b(?:within|in)\s+" + re.escape(match.group(1)) +
-                     r"\s+days?\s+of\s+" + anchor + r"\b", text, re.I):
+                     r"\s+(?:calendar\s+)?days?\s+of\s+(?:the\s+)?(?:date\s+of\s+)?(?:" + family + r")\b",
+                     text, re.I):
             return None
-        # The same duration explicitly tied to the same anchor in the passage.
-        if re.search(r"\b" + re.escape(match.group(1)) + r"[\s-]*days?\b[^.!?]{0,40}?\b"
-                     r"(?:of|from|after)\s+(?:the\s+)?(?:date\s+of\s+)?" + anchor + r"\b",
+        if re.search(r"\b" + re.escape(match.group(1)) + r"[\s-]*(?:calendar\s+)?days?\b[^.!?]{0,40}?\b"
+                     r"(?:of|from|after|following|once|when|since)\s+[^.!?]{0,20}?\b(?:" + family + r")\b",
                      text, re.I):
             return None
     # Delivery-based DOA evidence can establish a delivery anchor for the

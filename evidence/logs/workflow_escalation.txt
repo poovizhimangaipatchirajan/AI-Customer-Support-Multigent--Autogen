@@ -1,0 +1,42 @@
+FIXFLOW AI - WORKFLOW AND ESCALATION EVIDENCE
+Generated 2026-11-05 from the running Docker stack (approved-only index, 14 passages).
+Tickets were created by tests/e2e/test_screenshot_journeys.py with fictional accounts.
+
+Audit events are written by the backend; they are not produced by the model.
+
+==============================================================================
+FF-2026-000122  Where is my order?  [RESOLVED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED -> CUSTOMER_CONFIRMED_RESOLUTION: My support question has been addressed.
+==============================================================================
+FF-2026-000150  Return my shoes  [ANSWERED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED
+==============================================================================
+FF-2026-000124  Forgot password  [ANSWERED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED
+==============================================================================
+FF-2026-000132  Broken blender  [ESCALATED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ESCALATED
+==============================================================================
+FF-2026-000125  Charged three times  [ESCALATED]
+  Risk flags: LEGAL,PAYMENT_DISPUTE
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ESCALATED
+==============================================================================
+FF-2026-000133  Corporate gift cards  [ESCALATED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:MISSING_CITATIONS -> AI_ESCALATED
+==============================================================================
+FF-2026-000126  Instructions test  [ESCALATED]
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:MISSING_CITATIONS -> AI_ESCALATED
+==============================================================================
+FF-2026-000139  Damaged USB-C cable  [ANSWERED]  amount INR 299.00
+  Risk flags: none
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AUTO_REFUND_ACCEPTED -> AI_ANSWERED
+==============================================================================
+FF-2026-000140  Damaged headphones refund  [ANSWERED]  amount INR 600.00
+  Risk flags: REFUND_GE_500
+  Audit trail: REFUND_REVIEW_PENDING -> CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:UNSUPPORTED_QUANTITATIVE_POLICY_CLAIM -> AI_ESCALATED -> REFUND_EVIDENCE_ASSESSED -> REFUND_REVIEW_APPROVED -> ADMIN_PUBLISHED -> HUMAN_REVIEW_QUEUED -> HUMAN_REVIEW_LOGGED:APPROVED

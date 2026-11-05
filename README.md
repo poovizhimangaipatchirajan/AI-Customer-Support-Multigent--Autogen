@@ -113,13 +113,15 @@ flowchart TD
 Requirements: Python 3.11, the backend and frontend dependency files (`backend/requirements.txt`, `frontend/requirements.txt`), and the configured local environment variables. Use the project's existing virtual environment if it is already working; do not recreate it unnecessarily.
 
 ```cmd
-cd C:\Users\Admin\Desktop\nexora\fixflow-ai
+cd fixflow-ai
 venv\Scripts\activate
 
 pip install -r backend/requirements.txt
 pip install -r frontend/requirements.txt
 copy .env.example .env
 ```
+
+Dependencies are split per service (there is no root `requirements.txt`): `backend/requirements.txt` covers the FastAPI API, AutoGen agents, RAG and the worker; `frontend/requirements.txt` covers the Streamlit UI. Each Docker image installs its own file.
 
 Edit `.env` and set `OPENAI_API_KEY` (and the SMTP values for email verification). The frontend reads the backend address from `FIXFLOW_API_URL` (default `http://127.0.0.1:8000`); no backend URL is hardcoded. `backend/requirements.txt` and `frontend/requirements.txt` are the per-image lists used by Docker.
 
@@ -130,7 +132,7 @@ Keep API keys and credentials in local environment configuration. **Never commit
 In terminal 1:
 
 ```cmd
-cd C:\Users\Admin\Desktop\nexora\fixflow-ai
+cd fixflow-ai
 venv\Scripts\activate
 python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000
 ```
@@ -142,7 +144,7 @@ From the repository root, `streamlit run app.py` starts the UI with one command.
 In terminal 2:
 
 ```cmd
-cd C:\Users\Admin\Desktop\nexora\fixflow-ai
+cd fixflow-ai
 venv\Scripts\activate
 streamlit run app.py --server.address 127.0.0.1 --server.port 8501
 ```
@@ -154,7 +156,7 @@ Open **http://127.0.0.1:8501**.
 In terminal 3, activate the same virtual environment and ensure the required model, retrieval, and integration settings are available:
 
 ```cmd
-cd C:\Users\Admin\Desktop\nexora\fixflow-ai
+cd fixflow-ai
 venv\Scripts\activate
 python -m backend.worker.main
 ```
@@ -165,7 +167,7 @@ For a fresh installation, build the policy index using the project's existing co
 
 ### Test layout
 
-`tests/` holds **23 feature-grouped files** (899 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+`tests/` holds **23 feature-grouped files** (907 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
 
 | File | Covers |
 | --- | --- |
@@ -196,7 +198,7 @@ $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/te
 
 | Batch (run 2026-11-05) | Result |
 | --- | --- |
-| Full offline suite | **899 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Full offline suite | **907 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
 | Approved-only lane | **35 passed** |
 
 ### Live acceptance (opt-in, uses OpenAI)
@@ -210,10 +212,12 @@ $env:FIXFLOW_RUN_BUILDATHON_LIVE = "1"; $env:FIXFLOW_CUSTOMER_INDEX_MODE = "appr
 | Where is my order? | ANSWERED, cites the in-transit and delivered-not-received shipping passages; no invented ETA or tracking |
 | Return shoes bought last week | ANSWERED (occasionally routed to review when the agent flags a case decision); 14-day fashion window, conditions, no invented start date |
 | Forgot password | ANSWERED, identity verification required |
-| Broken blender, replacement | ESCALATED to human review (product category and remedy need a human decision) |
+| Broken blender, replacement | ESCALATED to human review, with policy guidance (see note below) |
 | Charged three times, bank and lawyer | ESCALATED (`LEGAL`, `PAYMENT_DISPUTE`) |
 | Gift cards for 500 employees | ESCALATED, no citations (no matching policy) |
 | TC02 fashion return / TC07 damaged cable ₹299 / TC08 wrong-size headphones | ANSWERED / ESCALATED / ESCALATED |
+
+**Why some "Resolved" cases are escalated on purpose.** The assignment expects the broken-blender request (test 4) to be resolved. FixFlow answers it with the grounded guidance it can support (Dead-on-Arrival assessment, technician diagnosis, required box and accessories) and then routes the **replacement decision** to a human, because the approved policy does not say which return category a blender belongs to and a replacement is a consequential remedy that must not be granted automatically. TC07 (damaged cable, no order or photo supplied) escalates for the same reason: verification is missing, not policy. When the customer links a delivered order and uploads a photo, the under-₹500 automatic path accepts it (screenshot 9).
 
 ANSWERED is never proof that a refund or replacement happened; no payment is executed.
 
@@ -283,7 +287,7 @@ See `evidence/screenshots/` for the canonical screenshot inventory. Add any veri
 
 ## Submission screenshot gallery
 
-All screenshots in `evidence/screenshots/` are produced by the Playwright journeys in `tests/e2e/test_screenshot_journeys.py` against the running Docker stack, using fictional accounts and orders. Older captures are kept in `evidence/screenshots/old/`. Images show the visible UI only; backend safety is proven by the automated tests above.
+All screenshots in `evidence/screenshots/` are produced by the Playwright journeys in `tests/e2e/test_screenshot_journeys.py` against the running Docker stack, using fictional accounts and orders. Images show the visible UI only; backend safety is proven by the automated tests above.
 
 | # | Screenshot | What it shows |
 | --- | --- | --- |

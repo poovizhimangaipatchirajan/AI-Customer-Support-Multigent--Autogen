@@ -1,0 +1,15 @@
+FIXFLOW AI - OFFLINE REGRESSION RESULTS
+Run 2026-11-05 on the committed code, Python 3.11, from the project root.
+
+Command: python -m pytest -q
+Result:  907 passed, 36 skipped in 210.38s
+         Skipped = 17 opt-in live AI tests + 19 opt-in Playwright browser tests
+         (they need FIXFLOW_RUN_* flags and are not counted as passes).
+         tests/conftest.py forces dummy API keys, an unroutable OpenAI address and
+         disabled SMTP, so this run made no paid calls and sent no email.
+
+Command: FIXFLOW_CUSTOMER_INDEX_MODE=approved_only python -m pytest -q tests/test_approved_only_lane.py
+Result:  35 passed in 5.88s
+
+Command: python -m ruff check backend frontend scripts eval app.py tests/e2e --select F
+Result:  All checks passed!

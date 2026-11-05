@@ -496,3 +496,34 @@ ANCHOR = "UNSUPPORTED_RETURN_WINDOW_ANCHOR"
 ])
 def test_return_window_not_delivery_promise(draft, expected):
     assert check_response_grounding(draft, EVIDENCE_phase2d6_return_window) == expected
+
+
+# ======================================================================
+# Any unstated start point is rejected (rule 25), not only purchase/delivery.
+# The first case is the wording found in an earlier published evidence log.
+# ======================================================================
+import pytest as _pytest_anchor
+from backend.rag.customer_policy import approved_passages as _approved
+
+_FASHION = [p for p in _approved() if p['id'] in ('f19af5c766a3e755', 'ca91ca28b962d2b7')]
+_DOA = [p for p in _approved() if p['id'] in ('e613368ccb42a62f', 'fd38927f93e77123')]
+
+
+@_pytest_anchor.mark.parametrize('draft', [
+    'For fashion and apparel items, you have a 14-day return window from receipt, provided the items are unworn.',
+    'Fashion and apparel have a 14-day return window from the date of receipt.',
+    'You have 14 days after you receive the item to return it.',
+    'Fashion and apparel can be returned within 14 days of arrival.',
+    'Fashion and apparel have a 14-day return window starting when the order arrives.',
+])
+def test_unstated_return_window_start_is_rejected(draft):
+    assert check_response_grounding(draft, _FASHION) == 'UNSUPPORTED_RETURN_WINDOW_ANCHOR'
+
+
+@_pytest_anchor.mark.parametrize('draft,passages', [
+    ('Fashion and apparel have a 14-day return window.', _FASHION),
+    ('The policy does not specify the start of the 14-day return window.', _FASHION),
+    ('If it fails to power on within seven calendar days of delivery, it may qualify for a Dead-on-Arrival assessment.', _DOA),
+])
+def test_stated_or_absent_start_is_allowed(draft, passages):
+    assert check_response_grounding(draft, passages) is None
