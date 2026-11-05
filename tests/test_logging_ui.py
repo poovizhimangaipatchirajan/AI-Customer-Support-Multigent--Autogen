@@ -45,7 +45,8 @@ def isolated(tmp_path, monkeypatch):
 def test_section7_columns_and_classified_labels(isolated):
     rows = _rows()
     assert len(rows)==1
-    assert len(rows[0])==12
+    assert len(rows[0])==13
+    assert rows[0]['language'] == 'English'
     assert (rows[0]['category'], rows[0]['urgency'], rows[0]['sentiment']) == ('Shipping & delivery', 'Low', 'Neutral')
     assert rows[0]['status'] == 'PROCESSING' and rows[0]['outcome'] == 'Pending'
     assert rows[0]['complaint']=='Where is my order?'
@@ -71,7 +72,7 @@ def test_csv_export_columns(isolated):
     assert response.body.startswith('﻿'.encode('utf-8'))
     rows=list(csv.DictReader(io.StringIO(response.body.decode('utf-8-sig'))))
     assert len(rows)==1
-    assert len(rows[0])==12
+    assert len(rows[0])==13
     assert list(rows[0])[0]=='ticket_id' and 'outcome' in rows[0]
 
 def test_customer_denied_export(isolated):
@@ -371,10 +372,10 @@ def test_query_agent_classification_is_parsed_strictly():
     from backend.services.ticket_classification import parse_query_classification as parse
     text = ('**Category:** Payments & billing\nUrgency: High\nSentiment: Angry\n'
             'Emotion: angry\nEmotion confidence: high\nSummary: Charged three times')
-    assert parse(text) == {'category': 'Payments & billing', 'urgency': 'High', 'emotion': 'Angry'}
+    assert parse(text) == {'category': 'Payments & billing', 'urgency': 'High', 'emotion': 'Angry', 'language': None}
     assert parse('Category: Spaceships\nUrgency: Extreme\nEmotion: euphoric') is None
     assert parse('Category: Shipping & delivery\nEmotion: uncertain') == {
-        'category': 'Shipping & delivery', 'urgency': None, 'emotion': None}
+        'category': 'Shipping & delivery', 'urgency': None, 'emotion': None, 'language': None}
     assert parse('{"passages": []}') is None
 
 

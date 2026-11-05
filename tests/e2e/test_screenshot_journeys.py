@@ -83,8 +83,21 @@ def pages(browser, accounts):
 
 
 # --------------------------------------------------------------- helpers --
+STREAMLIT_IDLE = """() => {
+    const status = document.querySelector('[data-testid="stStatusWidget"]');
+    return !document.querySelector('[data-stale="true"]')
+        && !(status && /running/i.test(status.textContent || ''));
+}"""
+
+
 def settle(page, ms=900):
-    page.wait_for_timeout(ms)  # let Streamlit finish its rerun
+    """Wait, then until Streamlit has finished its rerun: a click on a stale
+    render is silently dropped."""
+    page.wait_for_timeout(ms)
+    try:
+        page.wait_for_function(STREAMLIT_IDLE, timeout=30000)
+    except Exception:
+        pass  # screenshots still proceed; the assertions catch real failures
 
 
 def hide_chrome(page):
@@ -302,7 +315,7 @@ def test_15_admin_refund_review_decision(pages, accounts):
     page = pages['admin']
     ticket = ticket_by_subject(accounts['ravi'], 'Damaged headphones refund')
     STATE['refund_ticket'] = ticket
-    label = f"Ticket {ticket['id']}"
+    label = ticket['public_id']  # panels show the FF- code, never the internal id
 
     def panel():
         """This ticket's review panel only; other pending reviews stay untouched."""
@@ -327,12 +340,22 @@ def test_15_admin_refund_review_decision(pages, accounts):
     page.get_by_text(re.compile('Assessment saved')).wait_for()
     nav(page, 'Dashboard')  # reload the review with its new version
     nav(page, 'Refund reviews')
-    box = panel()
-    box.get_by_text('APPROVED', exact=True).filter(visible=True).first.click()
-    box.get_by_label('Decision reason').filter(visible=True).first.fill('Damage evidence accepted for a delivered, customer-owned order.')
-    box.get_by_text('I understand that no refund or payment will be executed.').filter(visible=True).first.click()
-    box.get_by_role('button', name='Record decision').filter(visible=True).first.click()
-    page.get_by_text(re.compile('Decision recorded')).or_(page.get_by_text('Completed refund reviews')).first.wait_for()
+    def review_status():
+        return requests.get(f"{API}/admin/refund-reviews/{ticket['id']}",
+                            headers=accounts['admin']['headers'], timeout=20).json().get('status')
+
+    for _attempt in range(2):  # a click on a stale rerun is dropped; retry once
+        box = panel()
+        box.get_by_text('APPROVED', exact=True).filter(visible=True).first.click()
+        box.get_by_label('Decision reason').filter(visible=True).first.fill('Damage evidence accepted for a delivered, customer-owned order.')
+        box.get_by_text('I understand that no refund or payment will be executed.').filter(visible=True).first.click()
+        box.get_by_role('button', name='Record decision').filter(visible=True).first.click()
+        deadline = time.time() + 20
+        while time.time() < deadline and review_status() != 'APPROVED':
+            time.sleep(1)
+        if review_status() == 'APPROVED':
+            break
+    assert review_status() == 'APPROVED', 'the refund decision was not recorded'
     settle(page, 2500)
     shot(page, '15_admin_refund_review_decision.png')
 

@@ -24,6 +24,7 @@ TITLES = {
     '03_Product_and_Warranty_SOP.pdf': 'Product & Warranty Policy',
     '04_Account_and_Login_SOP.pdf': 'Account & Security Policy',
     '05_Payments_and_Billing_SOP.pdf': 'Payments & Billing Policy',
+    'NovaCart_App_Help': 'App Help: Account access',
 }
 
 STOP = set(('what is the a an of to for in on with and or are can do does how when '
@@ -234,6 +235,9 @@ DEPARTMENT_TOPICS = {
     '04_Account_and_Login_SOP.pdf': (
         'account', 'login', 'log in', 'password', 'authentication',
         'identity verification', 'profile', '2fa', 'sign in',
+    ),
+    'NovaCart_App_Help': (
+        'password', 'reset', 'login', 'log in', 'sign in', 'forgot',
     ),
     '05_Payments_and_Billing_SOP.pdf': (
         'payment', 'payments', 'billing', 'checkout', 'upi',

@@ -4,10 +4,20 @@ from decimal import Decimal, InvalidOperation
 
 FLAGS = {
     'FRAUD': r'\bfraud(?:s|ulent|ulently)?\b|\bscam(?:med|ming|s)?\b|identity theft|phishing|ஏமாற்ற|மோசடி|mosadi|emath',
-    'LEGAL': r'\blegal\b|\blawyer\b|\bsue\b|\bcourt\b|வழக்கு|நீதிமன்ற|vazhakku',
+    # Tamil: வழக்கறிஞர் (lawyer), வக்கீல் (lawyer), சட்ட நடவடிக்கை (legal action).
+    'LEGAL': r'\blegal\b|\blawyer\b|\bsue\b|\bcourt\b|வழக்கு|வழக்கறிஞ|வக்கீல்|சட்ட\s*நடவடிக்கை|நீதிமன்ற|vazhakku|\bvakk?eel\b|\bvakil\b',
     # Repeated-charge wording: "charged my card three times", "billed 3 times",
     # "multiple charges", "charged more than once".
-    'PAYMENT_DISPUTE': r'\b(?:charged|debited|deducted|billed)\s+(?:me\s+|my\s+(?:card|account|bank(?:\s+account)?|upi|wallet)\s+)?(?:two|three|four|five|several|multiple|many|\d+)\s+times\b|\b(?:charged|debited|deducted|billed)\s+(?:me\s+|my\s+(?:card|account)\s+)?more than once\b|\b(?:two|three|four|five|several|multiple|duplicate|double|repeated)\s+(?:charges|debits|deductions|transactions)\b|charged twice|triple charg|double charg|unauthori[sz]ed|unrecogni[sz]ed charge|payment dispute|chargeback|debited twice|deducted twice|charged two times|debited two times|double debit|duplicate (?:payment|charge|debit)|பணம் இரண்டு முறை|இரண்டு முறை பிடித்த|ரெண்டு தடவை|rendu (?:thadava|thadavai|mur[aie])|debit aachu twice',
+    'PAYMENT_DISPUTE': r'\b(?:charged|debited|deducted|billed)\s+(?:me\s+|my\s+(?:card|account|bank(?:\s+account)?|upi|wallet)\s+)?(?:two|three|four|five|several|multiple|many|\d+)\s+times\b|\b(?:charged|debited|deducted|billed)\s+(?:me\s+|my\s+(?:card|account)\s+)?more than once\b|\b(?:two|three|four|five|several|multiple|duplicate|double|repeated)\s+(?:charges|debits|deductions|transactions)\b|charged twice|triple charg|double charg|unauthori[sz]ed|unrecogni[sz]ed charge|payment dispute|chargeback|debited twice|deducted twice|charged two times|debited two times|double debit|duplicate (?:payment|charge|debit)|பணம் இரண்டு முறை|இரண்டு முறை பிடித்த|ரெண்டு தடவை|rendu (?:thadava|thadavai|mur[aie])|debit aachu twice'
+        # Gapped and translated wording: "charged my credit card three times",
+        # "taken money from my card three times".
+        r'|\b(?:charged|debited|deducted|billed)\b[^.!?]{0,40}?\b(?:two|three|four|five|several|multiple|many|\d+)\s+times\b'
+        r'|\b(?:taken|took|withdrawn|withdrew|deducted|charged)\s+(?:the\s+|my\s+)?(?:money|payment|amount)\b[^.!?]{0,40}?\b(?:two|three|four|five|several|multiple|many|\d+)\s+times\b'
+        # Tamil / Tanglish repeated charges, only next to a money word.
+        r'|(?:பணம்|கட்டணம்|கார்டு|கார்டில்|டெபிட்|சார்ஜ்)[^.!?]{0,40}(?:இரண்டு|ரெண்டு|மூன்று|மூணு|நான்கு|பல)\s*(?:முறை|தடவை)'
+        r'|(?:இரண்டு|ரெண்டு|மூன்று|மூணு|நான்கு|பல)\s*(?:முறை|தடவை)[^.!?]{0,40}(?:பணம்|கட்டணம்|எடுத்த|பிடித்த|டெபிட்|சார்ஜ்)'
+        r'|(?:charge|panam|kaasu|debit|cut|card)\w*[^.!?]{0,40}\b(?:rendu|moonu|munu|naalu|pala)\s+(?:thadava\w*|murai|times?)\b'
+        r'|\b(?:rendu|moonu|munu|naalu|pala)\s+(?:thadava\w*|murai|times?)\b[^.!?]{0,40}(?:charge|panam|kaasu|debit|cut)',
 }
 REFUND = re.compile(r'\b(?:i (?:need|would like|require|am requesting|am asking for) (?:a |my )?(?:full |complete |partial |total )?refund|need (?:a |my )?(?:full |complete |partial |total )?refund|refund me|refund my|want (?:a |my )?(?:full |complete |partial |total )?refund|request (?:a |my )?(?:full |complete |partial |total )?refund|refund for my|refund of|give me (?:a |an )?(?:full |complete |partial |total )?refund|money back|please refund|return my money|give my money back|(?:need|want) my (?:rs\.?\s*|inr\s*|₹\s*)?[\d,]+(?:\.\d+)?\s*(?:rupees?|rs\.?)?\s*back|(?:refund|money)\s+venum|(?:panam|kaasu|kasu)\s+(?:thiruppi|thirumbi|return|back)|thiruppi\s+(?:venum|kodu|kudunga))\b|திருப்பி\s*(?:வேண்டும்|கொடு|தர)|பணம்\s*திருப்பி|ரீஃபண்ட்\s*(?:வேண்டும்|கொடு)|ரீபண்ட்\s*(?:வேண்டும்|கொடு)', re.I)
 SHORT_REFUND = re.compile(r'\brefund\s*(?:for\s*)?(?:₹\s*|rs\.?\s*|inr\s*)?(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rupees?)?\b', re.I)

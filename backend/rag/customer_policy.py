@@ -1,4 +1,5 @@
-"""Explicitly approved customer-facing excerpts from the six NovaCart SOP PDFs.
+"""Explicitly approved customer-facing excerpts from the NovaCart SOP PDFs,
+plus app help text describing this application's own screens.
 
 These are curated summaries of customer-disclosable policy, NOT raw operational
 SOP chunks. Review changes against the source PDF before shipping.
@@ -88,6 +89,17 @@ APPROVED_EXCERPTS = (
         "Never share a password, full payment-card number, or CVV with a support agent."
     ),
     (
+        # Describes this application's own reset screen (frontend/app.py,
+        # /auth/password-reset/*), not an SOP page. Keep in step with the UI.
+        # Approved by the project owner, 2026-11-05.
+        "NovaCart_App_Help", 1,
+        "To reset a forgotten password, choose Forgot password? on the sign-in "
+        "(login) page, or open the Verify / Reset tab, and enter your registered "
+        "email address. A password reset code is sent to that email and expires "
+        "in 30 minutes. Enter the code with a new password of at least 12 "
+        "characters. Never share the reset code with anyone, including support agents."
+    ),
+    (
         "05_Payments_and_Billing_SOP.pdf", 2,
         "A pending card authorization is not necessarily a completed charge. "
         "If you see a possible duplicate payment, report both transaction "
@@ -160,10 +172,12 @@ def approved_mfa_guidance(query):
     # Internal authorization procedures have no customer-approved passage.
     if re.search(r"hierarch|authorization level|approval chain|override procedure|internal procedure", q):
         return []
-    # Only general identity-verification guidance is approved; no reset steps.
+    # Identity-verification guidance, plus the app's own reset steps for a
+    # forgotten password (never for MFA, which has no approved reset path).
     return [p for p in approved_passages()
-            if p["source"] == "04_Account_and_Login_SOP.pdf"
-            and "identity verification" in p["text"].lower()]
+            if (p["source"] == "04_Account_and_Login_SOP.pdf"
+                and "identity verification" in p["text"].lower())
+            or (password_recovery and not mfa and p["source"] == "NovaCart_App_Help")]
 
 
 def approved_topic_guidance(query):

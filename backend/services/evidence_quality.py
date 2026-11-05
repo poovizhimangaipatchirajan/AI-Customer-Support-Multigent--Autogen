@@ -9,6 +9,7 @@ SOURCE_DOMAINS = {
     '02_Returns_and_Refunds_SOP.pdf': frozenset({'returns', 'refunds'}),
     '03_Product_and_Warranty_SOP.pdf': frozenset({'product'}),
     '04_Account_and_Login_SOP.pdf': frozenset({'account'}),
+    'NovaCart_App_Help': frozenset({'account'}),
     # Phase 2C explicitly labelled synthetic test fixtures (never real policy).
     'FICTIONAL_SHIPPING_POLICY.pdf': frozenset({'shipping'}),
     'FICTIONAL_RETURNS_POLICY.pdf': frozenset({'returns', 'refunds'}),

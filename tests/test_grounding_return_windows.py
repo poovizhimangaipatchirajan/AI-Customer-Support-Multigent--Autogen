@@ -527,3 +527,28 @@ def test_unstated_return_window_start_is_rejected(draft):
 ])
 def test_stated_or_absent_start_is_allowed(draft, passages):
     assert check_response_grounding(draft, passages) is None
+
+
+# ----------------------------------------------- "must be made within" --
+from backend.rag.customer_policy import approved_passages as _approved  # noqa: E402
+
+_FASHION_RETURNS = [p for p in _approved() if p['id'] in ('f19af5c766a3e755', 'ca91ca28b962d2b7')]
+_SHOES = 'I want to return the shoes I bought last week. How do I get a refund?'
+
+
+@pytest.mark.parametrize('draft', [
+    'Returns for fashion and apparel items must be made within 14 days.',
+    'Fashion and apparel returns need to be requested within 14 days.',
+])
+def test_category_window_with_must_wording_is_supported(draft):
+    assert check_response_grounding(draft, _FASHION_RETURNS, customer_message=_SHOES) is None
+
+
+@pytest.mark.parametrize('draft', [
+    'Returns for fashion and apparel items must be made within 7 days.',        # wrong window
+    'Returns for consumer electronics must be made within 14 days.',            # wrong category
+    'You must return the shoes within 14 days.',                                # item, not category
+    'Refunds for fashion and apparel must be processed within 14 days.',        # processing SLA
+])
+def test_must_wording_never_waives_category_or_value_checks(draft):
+    assert check_response_grounding(draft, _FASHION_RETURNS, customer_message=_SHOES) is not None

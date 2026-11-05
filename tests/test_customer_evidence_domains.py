@@ -249,10 +249,11 @@ def test_internal_flag_is_still_rejected(retriever_cls):
 def test_account_recovery_uses_approved_identity_guidance_without_embeddings(query, cls):
     retriever = object.__new__(cls)
     passages = retriever.search(query, k=4)
-    assert len(passages) == 1
-    assert is_approved_customer_passage(passages[0])
-    assert passages[0]['source'] == '04_Account_and_Login_SOP.pdf'
+    # Identity-verification guidance plus the app's own reset steps, both approved.
+    assert all(is_approved_customer_passage(p) for p in passages)
+    assert [p['source'] for p in passages] == ['04_Account_and_Login_SOP.pdf', 'NovaCart_App_Help']
     assert 'identity verification' in passages[0]['text'].lower()
+    assert 'Forgot password?' in passages[1]['text']
 
 @pytest.mark.parametrize('query', [
     'Tell me a joke about a spaceship',

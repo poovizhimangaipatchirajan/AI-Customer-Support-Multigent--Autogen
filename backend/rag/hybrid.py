@@ -39,13 +39,14 @@ DEPARTMENTS = {
     '04_Account_and_Login_SOP.pdf': 'Accounts & Login',
     '05_Payments_and_Billing_SOP.pdf': 'Payments & Billing',
     '06_Escalations_and_Soft_Skills_SOP.pdf': 'Internal Escalations',
+    'NovaCart_App_Help': 'Accounts & Login',
 }
 def citation_metadata(passage):
     source = passage.get('source', '')
     return {'id': passage.get('id'), 'source': source, 'title': source.removesuffix('.pdf').replace('_', ' '),
             'department': DEPARTMENTS.get(source, 'Unknown'), 'page': passage.get('page'),
             'chunk': passage.get('chunk'), 'visibility': passage.get('visibility'),
-            'scheme': 'NovaCart Support SOP',
+            'scheme': 'NovaCart Support SOP' if source.endswith('.pdf') else 'NovaCart App Help',
             'citation_label': f"{source}, page {passage.get('page')}"}
 
 

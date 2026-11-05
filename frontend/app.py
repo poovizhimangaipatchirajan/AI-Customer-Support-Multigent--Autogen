@@ -183,6 +183,8 @@ def login_screen():
                     st.rerun()
                 except Exception as exc:
                     st.error(str(exc))
+            with st.expander("Forgot password?"):
+                password_reset_form("login")
         with register:
             with st.form("register_form"):
                 full_name = st.text_input("Full name *", key="register_name", max_chars=100)
@@ -216,21 +218,29 @@ def login_screen():
                 except Exception as exc:
                     st.error(str(exc))
             st.divider()
-            reset_email = st.text_input("Password reset email", key="reset_email")
-            if st.button("Request reset token"):
-                try:
-                    result = call("POST", "/auth/password-reset/request", json={"email": reset_email.strip()})
-                    st.info(result["message"])
-                except Exception as exc:
-                    st.error(str(exc))
-            reset_token = st.text_input("Reset token", key="reset_token")
-            new_password = st.text_input("New password (12+ characters)", type="password", key="reset_password")
-            if st.button("Set new password"):
-                try:
-                    call("POST", "/auth/password-reset/confirm", json={"token": reset_token.strip(), "password": new_password})
-                    st.success("Password updated. Sign in again.")
-                except Exception as exc:
-                    st.error(str(exc))
+            password_reset_form("tab")
+
+
+def password_reset_form(prefix):
+    """Reset by emailed code. Shown under Login ('Forgot password?') and in the
+    Verify / Reset tab; the approved NovaCart_App_Help passage describes it."""
+    st.caption("Enter your registered email. A reset code is sent to it and expires in 30 minutes. "
+               "Never share the code with anyone, including support agents.")
+    reset_email = st.text_input("Registered email", key=f"{prefix}_reset_email")
+    if st.button("Send reset code", key=f"{prefix}_reset_request"):
+        try:
+            result = call("POST", "/auth/password-reset/request", json={"email": reset_email.strip()})
+            st.info(result["message"])
+        except Exception as exc:
+            st.error(str(exc))
+    reset_token = st.text_input("Reset code", key=f"{prefix}_reset_token")
+    new_password = st.text_input("New password (12+ characters)", type="password", key=f"{prefix}_reset_password")
+    if st.button("Set new password", key=f"{prefix}_reset_confirm"):
+        try:
+            call("POST", "/auth/password-reset/confirm", json={"token": reset_token.strip(), "password": new_password})
+            st.success("Password updated. Sign in with your new password.")
+        except Exception as exc:
+            st.error(str(exc))
 
 
 def sidebar(user, profile=None):
@@ -735,7 +745,10 @@ def refund_reviews_page():
         tid = review.get("ticket_id")
         if not tid:
             continue
-        with st.expander(f"Ticket {safe(tid)} · ₹{safe(review.get('amount', '—'))}"):
+        label = review.get("ticket_code") or "Support ticket"
+        if review.get("subject"):
+            label += f" · {review['subject']}"
+        with st.expander(f"{safe(label)} · ₹{safe(review.get('amount', '—'))}"):
             st.caption("Review the actual files. An upload is not proof of a valid claim.")
             evidence = api("GET", f"/tickets/{tid}/evidence")
             if evidence is None:
@@ -808,7 +821,7 @@ def refund_reviews_page():
         if not history:
             st.info("No completed refund reviews yet.")
         for item in history:
-            with st.expander(f"{safe(item.get('ticket_code') or item['ticket_id'])} · {safe(item['status'])} · ₹{safe(item['amount'])}"):
+            with st.expander(f"{safe(item.get('ticket_code') or 'Support ticket')} · {safe(item['status'])} · ₹{safe(item['amount'])}"):
                 st.write(f"Decision: {item['status']}")
                 st.write(f"Recorded: {stamp(item.get('decided_at'))}")
                 st.write(f"Reason: {item.get('reason') or '—'}")

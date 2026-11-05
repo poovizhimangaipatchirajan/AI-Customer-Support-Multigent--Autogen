@@ -189,7 +189,8 @@ def test_curated_excerpt_count():
 
 def test_approved_excerpts_have_real_provenance():
     for passage in policy.approved_passages():
-        assert passage["source"].endswith(".pdf")
+        # SOP PDFs, plus the one documented in-app help source for this UI.
+        assert passage["source"].endswith(".pdf") or passage["source"] == "NovaCart_App_Help"
         assert passage["page"] >= 1
         assert policy.is_approved_customer_passage(passage)
 

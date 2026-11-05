@@ -18,6 +18,7 @@ CATEGORIES = (
 CATEGORY_LABELS = tuple(label for label, _ in CATEGORIES) + ('Other / unclassified',)
 URGENCY_LABELS = ('Low', 'Medium', 'High')
 EMOTION_LABELS = ('Angry', 'Frustrated', 'Sad', 'Worried', 'Confused', 'Happy', 'Neutral')
+LANGUAGE_LABELS = ('English', 'Tamil', 'Tanglish')
 
 HIGH_RISK = re.compile(
     r'\b(?:unauthori[sz]ed|fraud|stolen|legal|lawyer|attorney|lawsuit|police|scam|'
@@ -67,7 +68,7 @@ def _pick(value, allowed):
 def parse_query_classification(text):
     """Read QueryAgent's structured fields; keep only known labels.
 
-    Returns {'category', 'urgency', 'emotion'} with None for anything missing
+    Returns {'category', 'urgency', 'emotion', 'language'} with None for anything missing
     or outside the allowed vocabulary, or None when nothing is usable.
     """
     if not isinstance(text, str) or not text.strip():
@@ -76,5 +77,6 @@ def parse_query_classification(text):
         'category': _pick(_field(text, 'Category'), CATEGORY_LABELS),
         'urgency': _pick(_field(text, 'Urgency'), URGENCY_LABELS),
         'emotion': _pick(_field(text, 'Emotion'), EMOTION_LABELS),
+        'language': _pick(_field(text, 'Language'), LANGUAGE_LABELS),
     }
     return result if any(result.values()) else None

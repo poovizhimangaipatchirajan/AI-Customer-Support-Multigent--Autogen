@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from backend.db.store import connect
 from backend.services.ticket_classification import classify_ticket, parse_query_classification
+from backend.services.language import detect_language
 from backend.auth.security import principal, admin_only
 
 router = APIRouter(prefix='/admin/rubric', tags=['rubric'])
@@ -21,6 +22,7 @@ FIELDS = [
     "category",
     "urgency",
     "sentiment",
+    "language",
     "kb_sources",
     "response",
     "status",
@@ -69,10 +71,15 @@ def migrate():
         c.execute('''CREATE TABLE IF NOT EXISTS ticket_classifications (
           ticket_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, category TEXT, urgency TEXT,
           emotion TEXT, created_at REAL NOT NULL)''')
+        columns = {r[1] for r in c.execute('PRAGMA table_info(ticket_classifications)')}
+        if 'language' not in columns:
+            c.execute('ALTER TABLE ticket_classifications ADD COLUMN language TEXT')
 
 
-def record_query_classification(job, messages):
-    """Store QueryAgent's Category/Urgency/Emotion for the log and dashboard.
+def record_query_classification(job, messages, language=None):
+    """Store QueryAgent's Category/Urgency/Emotion/Language for the log and dashboard.
+
+    `language` is the worker's detected language, used when QueryAgent gave none.
 
     Only labels from the allowed vocabulary are kept; reporting only, never an
     escalation input. Skipped when the job is no longer the active one.
@@ -80,19 +87,21 @@ def record_query_classification(job, messages):
     texts = [m.content for m in messages if getattr(m, 'source', None) == 'QueryAgent'
              and isinstance(getattr(m, 'content', None), str)]
     parsed = next((r for r in (parse_query_classification(x) for x in reversed(texts)) if r), None)
-    if not parsed:
+    if not parsed and not language:
         return False
+    parsed = parsed or {}
     migrate()
     with connect() as c:
         c.execute('BEGIN IMMEDIATE')
         current = c.execute('SELECT status, lease_token FROM jobs WHERE id=?', (job['id'],)).fetchone()
         if not current or current['status'] != 'PROCESSING' or current['lease_token'] != job['lease']:
             return False
-        c.execute('INSERT INTO ticket_classifications VALUES (?,?,?,?,?,?) ON CONFLICT(ticket_id) DO UPDATE SET '
+        c.execute('INSERT INTO ticket_classifications(ticket_id,job_id,category,urgency,emotion,created_at,language) '
+                  'VALUES (?,?,?,?,?,?,?) ON CONFLICT(ticket_id) DO UPDATE SET '
                   'job_id=excluded.job_id, category=excluded.category, urgency=excluded.urgency, '
-                  'emotion=excluded.emotion, created_at=excluded.created_at',
-                  (job['ticket_id'], job['id'], parsed['category'], parsed['urgency'],
-                   parsed['emotion'], time.time()))
+                  'emotion=excluded.emotion, created_at=excluded.created_at, language=excluded.language',
+                  (job['ticket_id'], job['id'], parsed.get('category'), parsed.get('urgency'),
+                   parsed.get('emotion'), time.time(), parsed.get('language') or language))
     return True
 
 def record_agent_events(job, messages):
@@ -196,12 +205,14 @@ def _rows():
             category, urgency, sentiment = classify_ticket(
                 t.get('subject'), t.get('description'), risk
             )
-            agent = c.execute('SELECT category, urgency, emotion FROM ticket_classifications '
+            language = detect_language(f"{t.get('subject') or ''} {t.get('description') or ''}")
+            agent = c.execute('SELECT category, urgency, emotion, language FROM ticket_classifications '
                               'WHERE ticket_id=?', (t['id'],)).fetchone() if has_classifications else None
             if agent:  # QueryAgent's classification; keyword rules only fill gaps
                 category = agent['category'] or category
                 urgency = agent['urgency'] or urgency
                 sentiment = agent['emotion'] or sentiment
+                language = agent['language'] or language
             if risk:  # backend risk flags are authoritative for urgency
                 urgency = 'High'
             citation_ids = []
@@ -228,6 +239,7 @@ def _rows():
                 'category':category,
                 'urgency':urgency,
                 'sentiment':sentiment,
+                'language':language,
                 'category · urgency · sentiment':f'{category} · {urgency} · {sentiment}',
                 'kb_sources':', '.join(source_names) if source_names else ('Source metadata unavailable' if citation_ids else ''),
                 'response':message['content'] if message else '',

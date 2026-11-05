@@ -112,8 +112,10 @@ def register_pending(c, ticket_id, amount, flags):
 def pending(user=Depends(principal)):
     admin_only(user)
     with connect() as c:
-        return [dict(r) for r in c.execute('''SELECT id,ticket_id,amount,status,version,created_at,
-            execution_status FROM refund_reviews WHERE status='PENDING' ORDER BY created_at''')]
+        return [dict(r) for r in c.execute('''SELECT r.id,r.ticket_id,t.public_id AS ticket_code,
+            t.subject,r.amount,r.status,r.version,r.created_at,r.execution_status
+            FROM refund_reviews r LEFT JOIN tickets t ON t.id=r.ticket_id
+            WHERE r.status='PENDING' ORDER BY r.created_at''')]
 
 @router.get('/history')
 def review_history(user=Depends(principal)):

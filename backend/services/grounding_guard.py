@@ -275,6 +275,63 @@ def repair_unsupported_category_membership(draft, passages):
     return ('\n'.join(paragraphs), True) if changed else (draft, False)
 
 
+# Promises that staff will act or get in touch ("we have escalated your case
+# to our billing team", "they will contact you soon"). No approved passage
+# makes such a promise; the backend itself states the review status.
+_STAFF_PROMISE = re.compile(
+    r"\b(?:we|i)(?:'ve|\s+have|\s+had|'ll|\s+will)?\s+(?:already\s+|now\s+)?"
+    r"(?:escalated|forwarded|transferred|passed|assigned|raised|referred|sent)\b"
+    r"[^.!?]{0,80}?\b(?:team|department|specialists?|agents?|manager|supervisor)\b"
+    r"|\b(?:they|we|i|someone|our\s+(?:\w+\s+){0,3}team|the\s+(?:\w+\s+){0,3}team|"
+    r"an?\s+(?:support\s+|human\s+|customer\s+(?:care\s+)?)?(?:agent|specialist|representative|executive))"
+    r"(?:\s+(?:will|shall)|'ll)\s+(?:\w+\s+){0,2}?"
+    r"(?:contact|reach\s+out|get\s+back|call|email|follow\s+up|be\s+in\s+touch)\b",
+    re.I)
+# Directions to an app screen or control ("use the 'Forgot Password' option
+# on the login page"). The named screen/control must appear in a cited passage.
+_UI_ACTION = re.compile(r"\b(?:click|tap|select|choose|use|using|go\s+to|open|visit|navigate\s+to|press|find)\b", re.I)
+_UI_NOUN = re.compile(
+    r"((?:[\"'“‘][^\"'”’]{1,40}[\"'”’]\s*)|(?:[\w-]+\s+){0,2})"
+    r"\b(option|button|link|tab|menu|page|screen|section|icon|dashboard|settings)\b", re.I)
+_UI_STOP = frozenset('a an the your our my this that on in of to and or for with from by at its their any'.split())
+
+
+def _ui_terms_supported(sentence, texts):
+    for m in _UI_NOUN.finditer(sentence):
+        words = [w for w in re.findall(r"[\w-]+", m.group(1).lower()) if w not in _UI_STOP]
+        if words and not all(re.search(r'\b' + re.escape(w) + r'\b', texts) for w in words):
+            return False
+    return True
+
+
+def repair_unsupported_support_claims(draft, passages):
+    """Drop sentences that promise staff contact/handoffs, or that direct the
+    customer to an app screen or control no cited passage names.
+
+    Returns (draft, changed). The caller revalidates the result and must fail
+    closed if nothing substantive remains.
+    """
+    if not isinstance(draft, str) or not draft.strip():
+        return draft, False
+    texts = re.sub(r"[^\w\s-]", " ", ' '.join(
+        p.get('text', '') for p in passages if isinstance(p, dict)).lower())
+    changed = False
+    paragraphs = []
+    for paragraph in draft.split('\n'):
+        kept = []
+        for sentence in re.split(r'(?<=[.!?])\s+', paragraph):
+            unsupported_ui = (_UI_ACTION.search(sentence) and _UI_NOUN.search(sentence)
+                              and not _ui_terms_supported(sentence, texts))
+            if sentence and (_STAFF_PROMISE.search(sentence) or unsupported_ui):
+                changed = True
+                continue
+            kept.append(sentence)
+        paragraphs.append(' '.join(s for s in kept if s))
+    if not changed:
+        return draft, False
+    return re.sub(r'\n{3,}', '\n\n', '\n'.join(paragraphs)).strip(), True
+
+
 def repair_unsupported_return_anchor(draft, passages):
     """Remove only an unsupported 'of purchase/delivery' anchor, never a window.
 
@@ -564,7 +621,10 @@ def check_response_grounding(draft, passages, customer_message=None):
                 sentence_return_window = (
                     not qualifier and unit.lower().rstrip('s') == 'day'
                     and re.search(r"\b(?:return|returns|returned|returning)\b", sentence, re.I)
-                    and re.search(r"\b(?:can|may|eligible|eligibility|window|period|allowed)\b", sentence, re.I)
+                    # "must be made within 14 days" states the same window as
+                    # "can be returned within"; the category and value checks
+                    # below still have to match a cited passage.
+                    and re.search(r"\b(?:can|may|must|should|needs?\s+to|ha(?:s|ve)\s+to|eligible|eligibility|window|period|allowed)\b", sentence, re.I)
                     and not re.search(r"\b(?:deliver|arrive|ship|dispatch|process|issue|complete)\w*\s+(?:within|in|by)\b", clause, re.I)
                     and (
                         (re.search(r"\b(?:consumer\s+electronics?|headphones?|earbuds?)\b", sentence, re.I)
