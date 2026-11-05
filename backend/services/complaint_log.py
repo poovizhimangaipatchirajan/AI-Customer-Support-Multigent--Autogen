@@ -8,7 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from backend.db.store import connect
-from backend.services.ticket_classification import classify_ticket
+from backend.services.ticket_classification import classify_ticket, parse_query_classification
 from backend.auth.security import principal, admin_only
 
 router = APIRouter(prefix='/admin/rubric', tags=['rubric'])
@@ -65,6 +65,35 @@ def migrate():
           created_at REAL NOT NULL, UNIQUE(job_id, lease_token, agent)
         )''')
         c.execute('CREATE INDEX IF NOT EXISTS idx_agent_outputs_ticket ON agent_output_summaries(ticket_id, created_at)')
+        # QueryAgent's own classification of each ticket (latest run wins).
+        c.execute('''CREATE TABLE IF NOT EXISTS ticket_classifications (
+          ticket_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, category TEXT, urgency TEXT,
+          emotion TEXT, created_at REAL NOT NULL)''')
+
+
+def record_query_classification(job, messages):
+    """Store QueryAgent's Category/Urgency/Emotion for the log and dashboard.
+
+    Only labels from the allowed vocabulary are kept; reporting only, never an
+    escalation input. Skipped when the job is no longer the active one.
+    """
+    texts = [m.content for m in messages if getattr(m, 'source', None) == 'QueryAgent'
+             and isinstance(getattr(m, 'content', None), str)]
+    parsed = next((r for r in (parse_query_classification(x) for x in reversed(texts)) if r), None)
+    if not parsed:
+        return False
+    migrate()
+    with connect() as c:
+        c.execute('BEGIN IMMEDIATE')
+        current = c.execute('SELECT status, lease_token FROM jobs WHERE id=?', (job['id'],)).fetchone()
+        if not current or current['status'] != 'PROCESSING' or current['lease_token'] != job['lease']:
+            return False
+        c.execute('INSERT INTO ticket_classifications VALUES (?,?,?,?,?,?) ON CONFLICT(ticket_id) DO UPDATE SET '
+                  'job_id=excluded.job_id, category=excluded.category, urgency=excluded.urgency, '
+                  'emotion=excluded.emotion, created_at=excluded.created_at',
+                  (job['ticket_id'], job['id'], parsed['category'], parsed['urgency'],
+                   parsed['emotion'], time.time()))
+    return True
 
 def record_agent_events(job, messages):
     """Record observed speaker participation only, never message bodies or reasoning."""
@@ -154,6 +183,8 @@ def _rows():
     with connect() as c:
         has_acceptances = bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
                                          "AND name='auto_refund_acceptances'").fetchone())
+        has_classifications = bool(c.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                                             "AND name='ticket_classifications'").fetchone())
         tickets = [dict(r) for r in c.execute('''SELECT t.*,u.full_name,u.public_id AS customer_code
             FROM tickets t LEFT JOIN users u ON u.id=t.customer_id ORDER BY t.created_at DESC''')]
         output = []
@@ -165,6 +196,14 @@ def _rows():
             category, urgency, sentiment = classify_ticket(
                 t.get('subject'), t.get('description'), risk
             )
+            agent = c.execute('SELECT category, urgency, emotion FROM ticket_classifications '
+                              'WHERE ticket_id=?', (t['id'],)).fetchone() if has_classifications else None
+            if agent:  # QueryAgent's classification; keyword rules only fill gaps
+                category = agent['category'] or category
+                urgency = agent['urgency'] or urgency
+                sentiment = agent['emotion'] or sentiment
+            if risk:  # backend risk flags are authoritative for urgency
+                urgency = 'High'
             citation_ids = []
             if last:
                 try:

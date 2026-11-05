@@ -175,7 +175,7 @@ def approved_docs():
 def mock_agents(monkeypatch):
     agents = []
     class FakeAgent:
-        def __init__(self, name, *, model_client, system_message, tools=None):
+        def __init__(self, name, *, model_client, system_message, tools=None, **_options):
             self.name, self.system_message, self.tools = name, system_message, tools or []
             agents.append(self)
     class FakeClient:

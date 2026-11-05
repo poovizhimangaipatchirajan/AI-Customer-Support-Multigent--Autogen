@@ -37,7 +37,7 @@ def queued_ticket():
 
 class StuckTeam:
     """Simulates a model call that never returns."""
-    async def run_stream(self, task):
+    async def run_stream(self, task, cancellation_token=None):
         await asyncio.sleep(3600)
         yield None
 
@@ -176,3 +176,28 @@ def test_frontend_shows_the_busy_message(monkeypatch):
     with pytest.raises(api_client.ApiError) as err:
         api_client.call('GET', '/tickets')
     assert err.value.status == 503 and 'busy' in str(err.value)
+
+
+def test_timeout_cancels_the_agents_and_bounds_client_close(db, monkeypatch):
+    """After a timeout the AutoGen run is cancelled and a hung close() cannot block."""
+    seen = {}
+
+    class CancellableStuckTeam:
+        async def run_stream(self, task, cancellation_token=None):
+            seen['token'] = cancellation_token
+            await asyncio.sleep(3600)
+            yield None
+
+    class HangingClient:
+        async def close(self):
+            await asyncio.sleep(3600)
+
+    monkeypatch.setattr(worker, 'RUN_TIMEOUT_SECONDS', 0.2)
+    monkeypatch.setattr(worker, 'make_team', lambda *a, **k: (CancellableStuckTeam(), HangingClient()))
+    real_wait_for = asyncio.wait_for
+    monkeypatch.setattr(worker.asyncio, 'wait_for', lambda aw, timeout: real_wait_for(aw, timeout=min(timeout, 0.2)))
+    queued_ticket()
+    started = time.monotonic()
+    asyncio.run(worker.process(worker.claim(), retriever=None))
+    assert time.monotonic() - started < 5
+    assert seen['token'] is not None and seen['token'].is_cancelled()

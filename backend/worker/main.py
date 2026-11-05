@@ -22,7 +22,7 @@ from backend.services.evidence_quality import missing_citation_domains
 from backend.services.evidence_fallback import extractive_policy_fallback
 from backend.services.refund_routing import mandatory_refund_review
 from backend.services.followup_context import review_context, safe_timing_fallback
-from backend.services.complaint_log import migrate as migrate_rubric, record_agent_events, record_agent_outputs
+from backend.services.complaint_log import migrate as migrate_rubric, record_agent_events, record_agent_outputs, record_query_classification
 
 LEASE_SECONDS = 180
 # Must stay below LEASE_SECONDS so a timed-out run is handled before recovery.
@@ -692,6 +692,9 @@ async def process(row, retriever):
                 )
 
     hb = asyncio.create_task(heartbeat())
+    # Lets a timeout or error actually stop the agents, not just stop waiting.
+    from autogen_core import CancellationToken
+    cancel = CancellationToken()
 
     try:
         print(
@@ -703,6 +706,7 @@ async def process(row, retriever):
             f"{m['role']}: {m['content'][:2500]}" for m in reversed(history)
         )
         stream = team.run_stream(
+            cancellation_token=cancel,
             task=(
                 f"Customer subject: {ticket['subject']}\n"
                 f"Original complaint: {ticket['description']}\n"
@@ -774,11 +778,13 @@ async def process(row, retriever):
 
         record_agent_events(row, result.messages)
         record_agent_outputs(row, result.messages)
+        record_query_classification(row, result.messages)
         success = bool(saved) and acknowledged
 
         finish(row, success)
 
     except TimeoutError:
+        cancel.cancel()
         print(f"Worker error: AI run exceeded {RUN_TIMEOUT_SECONDS}s", flush=True)
         if not requeue_after_timeout(row):
             finish(row, False)  # second timeout: fail closed to human review
@@ -793,13 +799,17 @@ async def process(row, retriever):
 
     finally:
         hb.cancel()
+        cancel.cancel()  # stop any agent work still in flight
 
         try:
             await hb
         except asyncio.CancelledError:
             pass
 
-        await client.close()
+        try:  # a stuck HTTP connection must not block the worker
+            await asyncio.wait_for(client.close(), timeout=10)
+        except Exception:
+            pass
 
 
 async def process_human_review(model_client=None):

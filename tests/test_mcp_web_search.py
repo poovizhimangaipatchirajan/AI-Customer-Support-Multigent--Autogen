@@ -209,7 +209,7 @@ def test_mcp_tool_discovery_and_invocation():
 # ======================================================================
 
 class FakeAgent:
-    def __init__(self, name, model_client, tools=None, system_message=""):
+    def __init__(self, name, model_client, tools=None, system_message="", **_options):
         self.name = name
         self.tools = {tool.__name__: tool for tool in (tools or [])}
         self.system_message = system_message
@@ -442,7 +442,7 @@ def test_unapproved_tool_does_not_launch_mcp(monkeypatch):
 # ======================================================================
 
 class FakeAgent_phase9c_agent_search:
-    def __init__(self, name, model_client, tools=None, system_message=""):
+    def __init__(self, name, model_client, tools=None, system_message="", **_options):
         self.name = name
         self.tools = {tool.__name__: tool for tool in (tools or [])}
         self.system_message = system_message

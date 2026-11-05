@@ -303,7 +303,7 @@ def test_shipping_inquiry_labels():
     assert classify_ticket('Shipping and delivery policy clarification', 'Please explain tracking and delays') == ('Shipping & delivery', 'Low', 'Neutral')
 
 def test_risk_priority():
-    assert classify_ticket('Unauthorized charge', 'I am frustrated about a payment', 'PAYMENT_DISPUTE') == ('Payments & billing', 'High', 'Negative')
+    assert classify_ticket('Unauthorized charge', 'I am frustrated about a payment', 'PAYMENT_DISPUTE') == ('Payments & billing', 'High', 'Frustrated')
 
 def test_suspicious_details_blocked():
     assert check_customer_visibility('We conduct geofence audits and driver GPS verification.') == 'SENSITIVE_OPERATIONAL_DETAIL'

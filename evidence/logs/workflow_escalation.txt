@@ -5,38 +5,38 @@ Tickets were created by tests/e2e/test_screenshot_journeys.py with fictional acc
 Audit events are written by the backend; they are not produced by the model.
 
 ==============================================================================
-FF-2026-000154  Where is my order?  [RESOLVED]
+FF-2026-000197  Where is my order?  [RESOLVED]
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED -> CUSTOMER_CONFIRMED_RESOLUTION: My support question has been addressed.
 ==============================================================================
-FF-2026-000155  Return my shoes  [ANSWERED]
+FF-2026-000198  Return my shoes  [ANSWERED]
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED
 ==============================================================================
-FF-2026-000156  Forgot password  [ANSWERED]
+FF-2026-000199  Forgot password  [ANSWERED]
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ANSWERED
 ==============================================================================
-FF-2026-000157  Broken blender  [ESCALATED]
+FF-2026-000200  Broken blender  [ESCALATED]
   Risk flags: none
-  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ESCALATED
+  Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:MISSING_DOMAIN_CITATION -> AI_ESCALATED
 ==============================================================================
-FF-2026-000158  Charged three times  [ESCALATED]
+FF-2026-000201  Charged three times  [ESCALATED]
   Risk flags: LEGAL,PAYMENT_DISPUTE
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_ESCALATED
 ==============================================================================
-FF-2026-000159  Corporate gift cards  [ESCALATED]
+FF-2026-000202  Corporate gift cards  [ESCALATED]
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:MISSING_CITATIONS -> AI_ESCALATED
 ==============================================================================
-FF-2026-000160  Instructions test  [ESCALATED]
+FF-2026-000203  Instructions test  [ESCALATED]
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:MISSING_CITATIONS -> AI_ESCALATED
 ==============================================================================
-FF-2026-000166  Damaged USB-C cable  [ANSWERED]  amount INR 299.00
+FF-2026-000209  Damaged USB-C cable  [ANSWERED]  amount INR 299.00
   Risk flags: none
   Audit trail: CREATED:QUEUED -> WORKER_CLAIMED -> AUTO_REFUND_ACCEPTED -> AI_ANSWERED
 ==============================================================================
-FF-2026-000162  Damaged headphones refund  [ANSWERED]  amount INR 600.00
+FF-2026-000210  Damaged headphones refund  [ANSWERED]  amount INR 600.00
   Risk flags: REFUND_GE_500
-  Audit trail: REFUND_REVIEW_PENDING -> CREATED:QUEUED -> WORKER_CLAIMED -> AI_EVIDENCE_REJECTED:UNSUPPORTED_QUANTITATIVE_POLICY_CLAIM -> AI_ESCALATED -> REFUND_EVIDENCE_ASSESSED -> REFUND_REVIEW_APPROVED -> ADMIN_PUBLISHED -> HUMAN_REVIEW_QUEUED -> HUMAN_REVIEW_LOGGED:APPROVED
+  Audit trail: REFUND_REVIEW_PENDING -> CREATED:QUEUED -> WORKER_CLAIMED -> AI_ESCALATED -> REFUND_EVIDENCE_ASSESSED -> REFUND_REVIEW_APPROVED -> ADMIN_PUBLISHED -> HUMAN_REVIEW_QUEUED -> HUMAN_REVIEW_LOGGED:APPROVED

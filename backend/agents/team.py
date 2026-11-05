@@ -59,8 +59,11 @@ SUPPORTED_CLAIMS_RULES = (
     "item could reasonably fall under more than one named category, or under "
     "none of them, do not state any category's window and do not assert which "
     "category the item belongs to; say the item's return category and "
-    "window must be confirmed during verification, name this in the Evidence "
-    "limitation field, and set needs_human_review to true. "
+    "window must be confirmed during verification, and name this in the Evidence "
+    "limitation field. Set needs_human_review to true for this only when the "
+    "customer asks for a case-specific remedy decision (for example a "
+    "replacement for a damaged item); for general return or refund guidance "
+    "the stated limitation is enough. "
 )
 
 def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
@@ -300,6 +303,9 @@ def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
     "QueryAgent",
     model_client=client,
     tools=[query_rag_context],
+    # After the RAG lookup, write the structured classification handoff
+    # (Category/Urgency/Sentiment/Emotion) instead of ending on the tool result.
+    reflect_on_tool_use=True,
     system_message=(
         "You are the Query Agent for NovaCart customer support. "
         "Analyze the customer's latest complaint or follow-up and "
@@ -318,8 +324,12 @@ def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
         "Emotion: <angry | frustrated | sad | happy | confused | worried | neutral | uncertain>\n"
         "Emotion confidence: <low | medium | high>\n"
         "Summary: <brief factual description of the issue>\n"
-        "Risk flags: <refund | legal | fraud | payment dispute | "
+        "Refund requested: <yes | no>\n"
+        "Risk flags: <legal | fraud | payment dispute | "
         "none; include all applicable flags>\n"
+        "A refund or return request on its own is not a risk flag; report it "
+        "as Refund requested: yes. Risk flags mean legal, fraud or payment-"
+        "dispute signals only. "
 
         "Classify based on the actual customer message. "
         "Treat legal threats, suspected fraud, and payment disputes "
@@ -342,8 +352,8 @@ def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
         "customer intent, or actions already completed. "
         "Do not approve refunds or override backend escalation rules. "
         "When information is insufficient, say so explicitly. "
-        "Include relevant approved policy IDs only when the tool returned "
-        "them; never invent an ID. If retrieval is irrelevant or empty, "
+        "Do not list policy IDs, document names or page numbers: "
+        "KnowledgeAgent owns evidence and citations. If retrieval is irrelevant or empty, "
         "classify from the customer message and mark evidence insufficient. "
         "Your output is a classification handoff, not a final "
         "customer-facing response."
@@ -358,7 +368,9 @@ def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
             "when provided below. You MAY call policy_search for additional "
             "retrieval; do not assume a tool call is mandatory if preloaded "
             "evidence is present. Summarize relevant "
-            "retrieved evidence with exact policy chunk IDs. Never invent or "
+            "retrieved evidence with exact policy chunk IDs: the `id` values from "
+            "the evidence JSON (16 hexadecimal characters), never document names, "
+            "page numbers or citation labels. Never invent or "
             "guess a policy ID. If the evidence does not support the proposed "
             "answer, leave cited_ids empty and request human review. For routine "
             "policy questions, distinguish an undocumented requested detail from "
@@ -482,6 +494,11 @@ def make_team(retriever, job_id, ticket_id, log_callback, initial_query=None):
             "without separate evidence. Routine, low-risk policy limitations "
             "do not by themselves require human review when a directly relevant "
             "customer-visible passage supports the explanation. "
+            "A general question about how returns or refunds work (no amount, no "
+            "damage or defect claim, no risk flag) is policy guidance: answer it "
+            "from the cited passage, say eligibility is verified in the return "
+            "process, and set needs_human_review to false; mentioning a refund "
+            "is not by itself a reason for human review. "
             "If no such passage is available, escalate without fabricating IDs. "
             "No refund, replacement, or other remedial action may be executed "
             "without verified order identity and supporting evidence; never "

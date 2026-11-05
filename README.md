@@ -176,7 +176,7 @@ The root `app.py` is a thin launcher for the Streamlit UI in `frontend/app.py`. 
 
 ### Test layout
 
-`tests/` holds **23 feature-grouped files** (911 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+`tests/` holds **23 feature-grouped files** (921 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
 
 | File | Covers |
 | --- | --- |
@@ -207,7 +207,7 @@ $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/te
 
 | Batch (run 2026-11-05) | Result |
 | --- | --- |
-| Full offline suite | **911 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Full offline suite | **921 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
 | Approved-only lane | **35 passed** |
 
 ### Live acceptance (opt-in, uses OpenAI)
@@ -335,7 +335,7 @@ All screenshots in `evidence/screenshots/` are produced by the Playwright journe
 | Four AutoGen agents, each with a clear single responsibility | [Four-agent workflow](#four-agent-workflow) and backend agent implementation |
 | KnowledgeAgent uses documents and identifies sources | [Hybrid RAG and supporting services](#hybrid-rag-and-supporting-services) and policy-reference screenshots |
 | ResolutionAgent avoids unsupported policies | [Safety and refund rules](#safety-and-refund-rules), grounding checks and validation cases |
-| Every ticket logged with required Section 7 fields | Admin **Audit logs** page shows the complaint log as a table with CSV download (`/admin/rubric/complaints.csv`). Columns: ticket_id, timestamp, customer_name / order_id, complaint, category, urgency, sentiment, kb_sources, response, status, outcome (Resolved / Escalated / Pending), escalation_reason |
+| Every ticket logged with required Section 7 fields | Admin **Audit logs** page shows the complaint log as a table with CSV download (`/admin/rubric/complaints.csv`). Columns: ticket_id, timestamp, customer_name / order_id, complaint, category, urgency, sentiment (QueryAgent's emotion: Angry, Frustrated, Worried, Confused, Happy, Sad or Neutral), kb_sources, response, status, outcome, escalation_reason. Category, urgency and emotion come from QueryAgent's own classification; keyword rules only fill gaps, and backend risk flags always force High urgency. Emotion affects reporting and tone only, never escalation |
 | Complicated cases marked Escalated with a reason | Human-review screenshots, ticket audit trail and escalation tests |
 | Streamlit starts with one command | [Start the frontend](#start-the-frontend): `streamlit run app.py` from project root (API and worker run as separate processes) |
 | No API keys committed | `.env.example`, `.gitignore` review and pre-push secret scan |

@@ -147,8 +147,8 @@ def test_sync_failure_preserves_prior_file(tmp_path):
     ('Order status', 'Where is my order? It was supposed to arrive yesterday.', ('Shipping & delivery', 'Medium', 'Neutral')),
     ('Return shoes', 'I want to return the shoes I bought last week. How do I get a refund?', ('Returns & refunds', 'Low', 'Neutral')),
     ('Password reset', "I forgot my password and can't log in.", ('Account & login', 'Medium', 'Neutral')),
-    ('Broken blender', 'The blender I received is broken. Can I get a replacement?', ('Product & warranty', 'Medium', 'Negative')),
-    ('Card charged', "You charged my card three times! Fix this now or I'm contacting my bank and a lawyer.", ('Payments & billing', 'High', 'Negative')),
+    ('Broken blender', 'The blender I received is broken. Can I get a replacement?', ('Product & warranty', 'Medium', 'Neutral')),
+    ('Card charged', "You charged my card three times! Fix this now or I'm contacting my bank and a lawyer.", ('Payments & billing', 'High', 'Angry')),
     ('Corporate gift cards', 'Do you sell gift cards for a company of 500 employees with custom branding?', ('Other / unclassified', 'Low', 'Neutral')),
 ])
 def test_official_scenarios(subject, description, expected):
@@ -348,3 +348,46 @@ def test_log_outcome_says_what_actually_happened():
     assert outcome_and_reason(c, {'id': 'open', 'status': 'ESCALATED'}, 'LEGAL', True) == (
         'Escalated', 'Legal threat or legal action mentioned')
     assert outcome_and_reason(c, {'id': 'plain', 'status': 'ANSWERED'}, '', False) == ('Resolved', '')
+
+
+# ======================================================================
+# Emotion labels: QueryAgent first, keyword fallback second
+# ======================================================================
+@pytest.mark.parametrize('text,expected', [
+    ("You charged my card three times! Fix this now or I'm contacting a lawyer.", 'Angry'),
+    ('This is the third time my order is late, I am so frustrated.', 'Frustrated'),
+    ('I am really disappointed with the quality.', 'Sad'),
+    ('I am worried my payment went through twice.', 'Worried'),
+    ("I don't understand the return window.", 'Confused'),
+    ('Thank you, the replacement arrived quickly!', 'Happy'),
+    ('Where is my order?', 'Neutral'),
+])
+def test_fallback_emotion_labels(text, expected):
+    from backend.services.ticket_classification import emotion_from_text
+    assert emotion_from_text(text) == expected
+
+
+def test_query_agent_classification_is_parsed_strictly():
+    from backend.services.ticket_classification import parse_query_classification as parse
+    text = ('**Category:** Payments & billing\nUrgency: High\nSentiment: Angry\n'
+            'Emotion: angry\nEmotion confidence: high\nSummary: Charged three times')
+    assert parse(text) == {'category': 'Payments & billing', 'urgency': 'High', 'emotion': 'Angry'}
+    assert parse('Category: Spaceships\nUrgency: Extreme\nEmotion: euphoric') is None
+    assert parse('Category: Shipping & delivery\nEmotion: uncertain') == {
+        'category': 'Shipping & delivery', 'urgency': None, 'emotion': None}
+    assert parse('{"passages": []}') is None
+
+
+def test_log_prefers_query_agent_and_risk_keeps_urgency_high(isolated):
+    from types import SimpleNamespace
+    from backend.services.complaint_log import record_query_classification
+    job = {'id': 'j', 'ticket_id': 't', 'lease': 'lease1', 'version': 0}
+    message = SimpleNamespace(source='QueryAgent', content='Category: Account & login\nUrgency: Low\nEmotion: frustrated')
+    assert record_query_classification(job, [message]) is True
+    row = _rows()[0]
+    assert (row['category'], row['urgency'], row['sentiment']) == ('Account & login', 'Low', 'Frustrated')
+    with store.connect() as c:
+        c.execute("UPDATE tickets SET risk='LEGAL' WHERE id='t'")
+    assert _rows()[0]['urgency'] == 'High'
+    # A stale job (lease lost) never overwrites the classification.
+    assert record_query_classification({**job, 'lease': 'other'}, [message]) is False

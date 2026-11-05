@@ -27,7 +27,7 @@ def team_harness(monkeypatch):
     agents = []
 
     class FakeAgent:
-        def __init__(self, name, *, model_client, system_message, tools=None):
+        def __init__(self, name, *, model_client, system_message, tools=None, **_options):
             self.name = name
             self.system_message = system_message
             self.tools = tools or []
@@ -300,6 +300,7 @@ class Agent:
         model_client=None,
         system_message="",
         tools=None,
+        **_options,
     ):
         self.name = name
         self.system_message = system_message
@@ -500,7 +501,7 @@ def prompts(monkeypatch):
     agents = []
 
     class FakeAgent:
-        def __init__(self, name, *, model_client, system_message, tools=None):
+        def __init__(self, name, *, model_client, system_message, tools=None, **_options):
             self.name, self.system_message, self.tools = name, system_message, tools or []
             agents.append(self)
 

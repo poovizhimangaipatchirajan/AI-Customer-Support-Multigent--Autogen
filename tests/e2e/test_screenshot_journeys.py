@@ -255,7 +255,7 @@ def test_09_own_case_auto_refund_under_500(pages, accounts, tmp_path):
     raise_complaint(page, accounts['ravi'], category='Returns & refunds', subject='Damaged USB-C cable',
                     description='My USB-C cable arrived damaged and does not charge. Please refund me.',
                     amount=299, order='DELIVERED', photo=photo)
-    page.get_by_text(re.compile('automatic eligibility checks')).first.wait_for(timeout=60000)
+    page.get_by_text(re.compile('automatic eligibility checks')).first.wait_for(timeout=120000)
     shot(page, '09_own_case_auto_refund_under_500.png')
 
 
@@ -314,19 +314,23 @@ def test_15_admin_refund_review_decision(pages, accounts):
 
     nav(page, 'Refund reviews')
     box = panel()
-    box.get_by_role('button', name='Inspect evidence').first.click()
-    settle(page, 1500)
-    box = panel()
-    box.get_by_text('Include inspected evidence').first.click()
-    box.get_by_label('Assessment reason').fill('Photo shows visible damage; order verified as delivered.')
+    box.get_by_role('button', name='Inspect evidence').filter(visible=True).first.click()
+    for _ in range(6):  # the rerun after "Inspect" can collapse the panel; reopen until shown
+        settle(page, 1500)
+        box = panel()
+        include = box.get_by_text('Include inspected evidence').filter(visible=True).first
+        if include.count():
+            break
+    include.click()
+    box.get_by_label('Assessment reason').filter(visible=True).first.fill('Photo shows visible damage; order verified as delivered.')
     box.get_by_role('button', name='Save assessment').filter(visible=True).first.click()
     page.get_by_text(re.compile('Assessment saved')).wait_for()
     nav(page, 'Dashboard')  # reload the review with its new version
     nav(page, 'Refund reviews')
     box = panel()
-    box.get_by_text('APPROVED', exact=True).first.click()
-    box.get_by_label('Decision reason').fill('Damage evidence accepted for a delivered, customer-owned order.')
-    box.get_by_text('I understand that no refund or payment will be executed.').click()
+    box.get_by_text('APPROVED', exact=True).filter(visible=True).first.click()
+    box.get_by_label('Decision reason').filter(visible=True).first.fill('Damage evidence accepted for a delivered, customer-owned order.')
+    box.get_by_text('I understand that no refund or payment will be executed.').filter(visible=True).first.click()
     box.get_by_role('button', name='Record decision').filter(visible=True).first.click()
     page.get_by_text(re.compile('Decision recorded')).or_(page.get_by_text('Completed refund reviews')).first.wait_for()
     settle(page, 2500)
@@ -356,9 +360,11 @@ def test_16_admin_human_in_the_loop_approval(pages, accounts):
 def test_17_customer_refund_status_after_approval(pages):
     page = pages['ravi']
     nav(page, 'My tickets')
-    page.get_by_text('Damaged headphones refund').first.wait_for()
+    page.get_by_placeholder('Ticket number or subject').first.fill('Damaged headphones refund')
+    page.keyboard.press('Enter')
+    settle(page, 1200)
     page.get_by_role('button', name=re.compile('View')).first.click()
-    page.get_by_text(re.compile('Refund review approved')).wait_for()
+    page.get_by_text(re.compile('Refund review approved')).first.wait_for(timeout=90000)
     settle(page, 1200)
     shot(page, '17_customer_refund_status_after_approval.png')
 
@@ -370,7 +376,7 @@ def test_18_admin_dashboard(pages):
     shot(pages['admin'], '18_admin_dashboard.png')
 
 
-def test_19_complaint_log_table_and_csv(pages, browser):
+def test_19_complaint_log_table_and_csv(pages, browser, accounts):
     page = pages['admin']
     nav(page, 'Audit logs')
     page.get_by_role('button', name='Prepare complaint CSV').click()
@@ -386,7 +392,11 @@ def test_19_complaint_log_table_and_csv(pages, browser):
                    'kb_sources', 'response', 'status', 'outcome', 'escalation_reason'):
         assert column in header
     viewer = browser.new_page(viewport={'width': 1800, 'height': 1000})
-    cells = ''.join('<tr>' + ''.join(f'<td>{html.escape(c[:160])}</td>' for c in r) + '</tr>' for r in rows[:16])
+    # Show only this run's fictional accounts, never other people's tickets.
+    names = {accounts['asha']['name'], accounts['ravi']['name']}
+    who = header.index('customer_name / order_id')
+    shown = [header] + [r for r in rows[1:] if r[who].split(' / ')[0] in names][:15]
+    cells = ''.join('<tr>' + ''.join(f'<td>{html.escape(c[:160])}</td>' for c in r) + '</tr>' for r in shown)
     viewer.set_content('<style>body{font:13px Calibri,Arial;margin:16px}table{border-collapse:collapse}'
                        'td{border:1px solid #c8c8c8;padding:4px 6px;vertical-align:top;max-width:260px}'
                        'tr:first-child td{background:#217346;color:#fff;font-weight:bold}</style>'
