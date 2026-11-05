@@ -28,3 +28,23 @@ def review_message(ticket):
                 'No replacement or refund has been approved or dispatched.')
     return ('This ticket requires human review before a response or action can be '
             'confirmed. No refund or payment has been executed.')
+
+
+# Plain-language escalation reasons for admin lists. Kept identical to
+# backend/services/complaint_log.py REASONS (a test checks they match); the
+# frontend image does not ship the backend package.
+ESCALATION_REASONS = {
+    'REFUND_GE_500': 'Refund of INR 500 or more requires human review',
+    'REFUND_AMOUNT_UNVERIFIED': 'Refund amount unclear or conflicting; needs confirmation',
+    'REFUND_CURRENCY_UNCERTAIN': 'Refund currency unclear; needs confirmation',
+    'FRAUD': 'Possible fraud reported',
+    'LEGAL': 'Legal threat or legal action mentioned',
+    'PAYMENT_DISPUTE': 'Payment dispute or duplicate charge reported',
+}
+DEFAULT_ESCALATION_REASON = 'Policy evidence or case decision needs human review'
+
+
+def escalation_reason(ticket):
+    """Why an escalated ticket is waiting for a human (risk flags first)."""
+    codes = [c for c in (ticket.get('risk') or '').split(',') if c]
+    return '; '.join(ESCALATION_REASONS.get(c, c) for c in codes) or DEFAULT_ESCALATION_REASON

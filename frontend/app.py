@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 import streamlit as st
 from frontend.api_client import call, BASE, ApiError, DEFAULT_MESSAGES, SERVER_ERROR
-from frontend.ticket_review_display import review_message
+from frontend.ticket_review_display import escalation_reason, review_message
 from frontend.refund_decision_draft import decision_response_draft
 
 st.set_page_config(page_title="FixFlow AI | NovaCart Support", page_icon="🛒", layout="wide", initial_sidebar_state="expanded")
@@ -126,6 +126,9 @@ def ticket_list(items, admin=False, key_prefix="tickets"):
             if admin:
                 sub += f" · ₹{float(t.get('claimed_amount') or 0):,.2f}"
             st.caption(sub)
+            if admin and t.get("status") == "ESCALATED":
+                st.markdown(f'<span style="color:#b42318;font-size:0.85rem">⚑ Reason: {safe(escalation_reason(t))}</span>',
+                            unsafe_allow_html=True)
         with b:
             st.markdown(pill(t.get("status")), unsafe_allow_html=True)
         with c:

@@ -391,3 +391,12 @@ def test_log_prefers_query_agent_and_risk_keeps_urgency_high(isolated):
     assert _rows()[0]['urgency'] == 'High'
     # A stale job (lease lost) never overwrites the classification.
     assert record_query_classification({**job, 'lease': 'other'}, [message]) is False
+
+
+def test_queue_escalation_reasons_match_the_log():
+    from backend.services.complaint_log import REASONS
+    from frontend.ticket_review_display import ESCALATION_REASONS, DEFAULT_ESCALATION_REASON, escalation_reason
+    assert ESCALATION_REASONS == REASONS  # frontend copy must not drift from the log
+    assert escalation_reason({'risk': 'LEGAL,PAYMENT_DISPUTE'}) == (
+        'Legal threat or legal action mentioned; Payment dispute or duplicate charge reported')
+    assert escalation_reason({'risk': ''}) == DEFAULT_ESCALATION_REASON
