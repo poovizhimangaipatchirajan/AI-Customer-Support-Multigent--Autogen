@@ -42,26 +42,28 @@ FixFlow AI separates the customer-facing interface, authenticated API, backgroun
 
 ```mermaid
 flowchart TB
-    C[Customer] --> UI[Streamlit customer portal]
-    A[Support administrator] --> AD[Streamlit admin dashboard]
-    UI --> API[FastAPI backend]
+    C["Customer"] --> UI["Streamlit customer portal"]
+    A["Support administrator"] --> AD["Streamlit admin dashboard"]
+    UI --> API["FastAPI backend"]
     AD --> API
-    API --> AUTH[Authentication and authorization]
-    API --> DB[(SQLite: users, tickets, review state, audit records)]
-    API --> GUARD[Backend policy and escalation checks]
-    API --> WORKER[Background worker]
-    WORKER --> TEAM[AutoGen support workflow]
-    TEAM --> QA[QueryAgent]
-    QA --> KA[KnowledgeAgent]
-    KA --> RA[ResolutionAgent]
-    RA --> LA[LogAgent]
-    KA --> RAG[Hybrid retrieval: FAISS + BM25 + RRF]
-    RAG --> DOCS[Approved policy and FAQ documents]
-    TEAM -. permitted read-only tools .-> MCP[MCP integration]
-    TEAM -. current public information only .-> WEB[Restricted web search]
+    API --> AUTH["Authentication and authorization"]
+    API --> DB[("SQLite: users, tickets, reviews, audit")]
+    API --> GUARD["Backend policy and escalation checks"]
+    API --> WORKER["Background worker"]
+    WORKER --> TEAM["AutoGen four-agent team"]
+    TEAM --> QA["QueryAgent"]
+    QA --> KA["KnowledgeAgent"]
+    KA --> RA["ResolutionAgent"]
+    RA --> LA["LogAgent"]
+    QA --> RAG["Hybrid retrieval: FAISS + BM25 + RRF"]
+    KA --> RAG
+    RAG --> DOCS["Approved customer policy passages"]
+    TEAM -. "read-only demo tools" .-> MCP["MCP integration"]
+    TEAM -. "fixed public topics only" .-> WEB["Restricted web search"]
     LA --> DB
-    GUARD --> REVIEW[Human review and approval]
-    REVIEW --> DB
+    GUARD --> REVIEW["Human review and approval"]
+    REVIEW --> HITL["SupportReviewer: AutoGen UserProxyAgent"]
+    HITL --> DB
     API --> UI
     API --> AD
 ```
@@ -79,18 +81,21 @@ The AutoGen team is organized around four distinct responsibilities:
 
 ```mermaid
 flowchart TD
-    IN[Customer complaint or follow-up] --> T[FastAPI ticket intake and authorization]
-    T --> Q[1. QueryAgent: classify and summarize]
-    Q --> K[2. KnowledgeAgent: retrieve policy evidence]
-    K --> R[3. ResolutionAgent: draft grounded reply]
-    R --> L[4. LogAgent: record outcome]
-    L --> POLICY{Escalation or human review required?}
-    POLICY -->|Yes| H[Human review queue]
-    POLICY -->|No| SAFE[Eligible support response]
-    H --> ADMIN[Administrator reviews and publishes authorized response]
-    SAFE --> OUT[Customer ticket view]
-    ADMIN --> OUT
-    OUT --> AUDIT[(Ticket history and audit trail)]
+    IN["Customer complaint or follow-up"] --> T["FastAPI ticket intake and risk screening"]
+    T --> Q["Step 1 · QueryAgent: classify with RAG"]
+    Q --> K["Step 2 · KnowledgeAgent: retrieve approved evidence"]
+    K --> R["Step 3 · ResolutionAgent: draft grounded reply"]
+    R --> L["Step 4 · LogAgent: persist outcome"]
+    L --> CHECK{"Backend validation: citations, grounding, risk"}
+    CHECK -->|"Under INR 500, verified order and photo"| AUTO["Refund accepted automatically, no payment executed"]
+    CHECK -->|"No review needed"| SAFE["Grounded reply published"]
+    CHECK -->|"Risk, INR 500 or more, or weak evidence"| H["Human review queue"]
+    H --> ADMIN["Administrator edits and approves reply"]
+    ADMIN --> HITL["SupportReviewer · UserProxyAgent records the decision"]
+    AUTO --> OUT["Customer ticket view"]
+    SAFE --> OUT
+    HITL --> OUT
+    OUT --> AUDIT[("Ticket history and audit trail")]
 ```
 
 **Important:** The flowchart shows the logical support process, not a guarantee that the AI can approve or execute financial transactions. Backend checks and human review are authoritative. Refund requests of **₹500 or more** (including ₹500), fraud/legal/payment disputes, missing order verification, and missing required evidence must be handled under the applicable safeguards. **No refund is automatically executed.**
