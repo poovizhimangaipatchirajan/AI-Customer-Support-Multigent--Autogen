@@ -17,7 +17,6 @@ from backend.main import app
 from backend.auth.security import hash_password, create_session
 import importlib.util
 from pathlib import Path
-from backend.auth.security import hash_password
 import base64
 from io import BytesIO
 from PIL import Image

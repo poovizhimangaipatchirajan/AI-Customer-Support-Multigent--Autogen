@@ -14,7 +14,6 @@ import pytest
 from backend.db import store
 from backend.services.customer_orders import migrate as migrate_customer_orders
 from backend.services.complaint_log import migrate, record_agent_events, _rows, complaints_csv
-from pathlib import Path
 from unittest.mock import patch
 from backend.services.ticket_csv_sync import sync_csv
 from backend.services.complaint_log import FIELDS

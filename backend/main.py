@@ -232,12 +232,10 @@ def is_refund_information_request(text: str) -> bool:
     return _risk_information_request(text)
 
 FOREIGN_REFUND_CURRENCY = re.compile(r'\b(?:usd|eur|gbp|dollars?|euros?|pounds?)\b|[$€£]', re.I)
-REFUND_CLARIFICATION = (
-    'Please provide your order number/reference number and the refund amount in INR. '
-    'If the product arrived damaged or defective, attach photographs and describe the issue. '
-    'Your order ownership and refund eligibility must be verified. '
-    'No refund or replacement has been approved or processed.'
-)
+# Fixed system text with reviewed Tamil/Tanglish versions, chosen by the
+# language of the customer's own message (backend/services/fixed_messages.py).
+from backend.services.fixed_messages import REFUND_CLARIFICATION, localized
+from backend.services.language import detect_language
 
 @app.post('/tickets',status_code=201)
 def create_ticket(body:TicketIn,user=Depends(principal)):
@@ -273,7 +271,8 @@ def create_ticket(body:TicketIn,user=Depends(principal)):
   if body.order_code:c.execute('INSERT INTO ticket_order_links(ticket_id,order_code,customer_id) VALUES (?,?,?)',(tid,body.order_code,user['id']))
   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),tid,'customer',body.description,1,now))
   if clarification:
-   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),tid,'assistant',REFUND_CLARIFICATION,1,now))
+   c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',(str(uuid.uuid4()),tid,'assistant',
+             localized(REFUND_CLARIFICATION,detect_language(body.subject+' '+body.description)),1,now))
   else:
    # Do not publish a provisional review message. The worker will publish
    # exactly one validated response (or a safe fallback) after all agents run.
@@ -429,7 +428,7 @@ def reply(ticket_id: str, body: ReplyIn, user=Depends(principal)):
             if clarification:
                 c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',
                           (str(uuid.uuid4()), ticket_id, 'assistant',
-                           REFUND_CLARIFICATION, 1, now))
+                           localized(REFUND_CLARIFICATION, detect_language(body.content)), 1, now))
             # Supersede any old queued jobs. Running jobs are invalidated by version.
             c.execute("UPDATE jobs SET status='SUPERSEDED', completed_at=? "
                       "WHERE ticket_id=? AND status='QUEUED'", (now, ticket_id))

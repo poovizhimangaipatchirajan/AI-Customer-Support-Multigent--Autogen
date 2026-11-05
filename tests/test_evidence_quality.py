@@ -395,7 +395,7 @@ def isolated_db(tmp_path, monkeypatch):
 ])
 def test_rejection_reason_codes(isolated_db, capsys, ids, evidence, expected):
     tid, jid = seed_ticket()
-    row = worker.claim()
+    worker.claim()
     worker.persist(jid, tid, 'summary', 'A safe generic reply.', ids, False, evidence)
     assert expected in capsys.readouterr().out
     with store.connect() as c:

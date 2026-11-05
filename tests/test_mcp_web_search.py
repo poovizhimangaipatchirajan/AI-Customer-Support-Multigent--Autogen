@@ -681,9 +681,7 @@ def test_serper_network_failure(monkeypatch):
 @pytest.fixture
 def force_brave_provider(monkeypatch):
     monkeypatch.setenv("SEARCH_PROVIDER", "brave")
-from unittest.mock import patch
 
-from backend.services import web_search_adapter as search
 
 
 @pytest.mark.usefixtures('force_brave_provider')

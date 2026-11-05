@@ -217,6 +217,18 @@ def test_01_registration_screen(browser):
     context.close()
 
 
+def test_01b_login_forgot_password(browser):
+    context = browser.new_context(viewport={'width': 1440, 'height': 1100})
+    page = context.new_page()
+    page.goto(UI)
+    page.get_by_role('tab', name='Login').click()
+    page.get_by_text('Forgot password?').click()
+    page.get_by_role('button', name='Send reset code').first.wait_for()
+    settle(page, 800)
+    shot(page, '01b_login_forgot_password.png')  # nothing submitted: no reset email
+    context.close()
+
+
 def test_02_customer_home(pages):
     nav(pages['asha'], 'Home')
     shot(pages['asha'], '02_customer_home.png')

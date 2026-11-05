@@ -12,7 +12,6 @@ Merged without behaviour changes from:
 import pytest
 from backend.db.store import init, connect
 from backend.worker.main import recover, claim
-import json
 import time
 import uuid
 from types import SimpleNamespace
@@ -192,7 +191,7 @@ def test_stale_result_never_publishes(isolated_db):
 
 def test_expired_worker_lease_recovers_to_queue(isolated_db):
     tid, jid = seed_ticket()
-    row = worker.claim()
+    worker.claim()
     with store.connect() as c:
         c.execute('UPDATE jobs SET heartbeat=? WHERE id=?',
                   (time.time() - worker.LEASE_SECONDS - 20, jid))
@@ -583,7 +582,8 @@ def test_initial_risk_review_explained():
     text = (ROOT / 'backend/main.py').read_text(encoding='utf-8')
     assert 'def initial_review_explanation(flags):' not in text  # removed dead helper
     assert "status='AWAITING_CUSTOMER' if clarification else 'QUEUED'" in text
-    assert 'No refund or replacement has been' in text
+    from backend.services.fixed_messages import REFUND_CLARIFICATION  # the message sent with it
+    assert 'No refund or replacement has been' in REFUND_CLARIFICATION
 
 def test_agent_low_value_policy():
     text = (ROOT / 'backend/agents/team.py').read_text(encoding='utf-8')

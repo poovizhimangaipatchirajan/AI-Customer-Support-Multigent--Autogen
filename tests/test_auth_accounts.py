@@ -12,13 +12,10 @@ from fastapi.testclient import TestClient
 from backend.db import store
 from backend import main
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from fastapi import HTTPException
 from backend.auth.mailer import send_token
 from backend.main import validate_registration
-import os
-import sqlite3
-import uuid
 from backend.db.store import connect, init
 from backend.services.ticket_evidence import sniff, MAX_BYTES, ALLOWED
 from PIL import Image

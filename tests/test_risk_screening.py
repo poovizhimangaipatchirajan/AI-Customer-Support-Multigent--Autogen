@@ -17,7 +17,7 @@ from backend.services.risk import screen
 import pytest
 import importlib.util
 from pathlib import Path
-from backend.services.risk import screen, refund_amount_from_text
+from backend.services.risk import refund_amount_from_text
 from backend.services.ticket_classification import classify_ticket
 from backend.services.grounding_guard import check_customer_visibility
 

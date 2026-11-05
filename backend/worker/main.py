@@ -685,7 +685,9 @@ async def localize_reply(row, language):
     if not message:
         return False
     english = message["content"]
-    translated = await _bounded(lang.from_english(english, language))
+    # A known fixed backend message uses its reviewed translation, no model call.
+    from backend.services.fixed_messages import fixed_translation
+    translated = fixed_translation(english, language) or await _bounded(lang.from_english(english, language))
     with connect() as c:
         c.execute("BEGIN IMMEDIATE")
         updated = translated and c.execute(

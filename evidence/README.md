@@ -1,7 +1,7 @@
 ﻿# FixFlow AI — Evaluation Evidence
 
 All evidence was generated on 2026-11-05 from the running Docker stack (approved-only
-index, 14 customer passages) using **fictional accounts created by the automated
+index, 15 customer passages) using **fictional accounts created by the automated
 Playwright journeys** (`tests/e2e/test_screenshot_journeys.py`). Ticket codes (`FF-2026-…`) match the screenshots.
 
 | Rubric area | Evidence | What it shows |

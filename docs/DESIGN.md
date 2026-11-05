@@ -35,7 +35,9 @@ The approved policy passages are English, so every check runs in English:
 3. The English reply is validated exactly as for an English ticket, then translated. The customer sees the translation with the verified English reply below it.
 4. A translation is rejected if it drops, changes or adds any number (amount, day count, order ID); the English reply is then published unchanged. Both steps are audited (`REPLY_TRANSLATED` / `REPLY_TRANSLATION_SKIPPED`).
 
-QueryAgent reports the language; the complaint log shows it. Fixed backend messages (refund clarification, Help Center) stay in English.
+QueryAgent reports the language; the complaint log shows it.
+
+Fixed messages the backend sends itself (the refund-amount question, the automatic-acceptance notice) have reviewed Tamil and Tanglish versions in `backend/services/fixed_messages.py`, chosen by the language of the customer's message; they never go through a model, and tests check every version keeps the same numbers and placeholders. The Help Center screens the original words for risk, answers from the English translation of the question, and translates the answer with the same number check, keeping the English below. Screen labels and buttons stay English.
 
 ## Complaint log
 

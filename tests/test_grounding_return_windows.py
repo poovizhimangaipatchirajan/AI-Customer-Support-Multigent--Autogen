@@ -13,10 +13,7 @@ Merged without behaviour changes from:
 - test_phase2d6_return_window.py: Phase 2D.6: distinguish return eligibility from delivery promises.
 """
 from backend.services.grounding_guard import check_response_grounding, repair_unsupported_return_anchor
-from backend.services.grounding_guard import check_response_grounding
 import pytest
-import importlib.util
-from pathlib import Path
 from backend.services.answer_repair import repair_isolated_time_claim
 from backend.services import answer_repair
 

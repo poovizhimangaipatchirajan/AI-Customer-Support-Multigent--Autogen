@@ -122,10 +122,10 @@ streamlit run app.py
 
 | Check (2026-11-05) | Result |
 | --- | --- |
-| Offline test suite (`python -m pytest -q`) | **974 passed**, 36 skipped (opt-in live tests) |
+| Offline test suite (`python -m pytest -q`) | **985 passed**, 37 skipped (opt-in live tests) |
 | Live six official scenarios + TC02/TC07/TC08 | All outcomes as expected; see [docs/TESTING.md](docs/TESTING.md) |
 | Retrieval evaluation, 30 labelled questions | 20/20 answerable questions find the right source in top 4; 0 internal-SOP leaks |
-| Playwright browser journeys | 19 passed, screenshots below |
+| Playwright browser journeys | 20 passed, screenshots below |
 
 The broken-blender replacement is escalated on purpose: the approved policy does not say which return category a blender belongs to, and a replacement is a consequential remedy that needs a human.
 
@@ -156,7 +156,7 @@ Produced by `tests/e2e/test_screenshot_journeys.py` against the Docker stack wit
 | 19 | [Complaint log table](evidence/screenshots/19_complaint_log_table.png) | All required columns, CSV download |
 | 20 | [Complaint log CSV](evidence/screenshots/20_complaint_log_csv.png) | Outcome and escalation reasons |
 
-Also: [registration](evidence/screenshots/01_registration_and_login.png), [customer home](evidence/screenshots/02_customer_home.png).
+Also: [registration](evidence/screenshots/01_registration_and_login.png), [login with Forgot password?](evidence/screenshots/01b_login_forgot_password.png), [customer home](evidence/screenshots/02_customer_home.png).
 
 ## Project structure
 

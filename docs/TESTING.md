@@ -4,7 +4,7 @@
 
 ## Test layout
 
-`tests/` holds **27 feature-grouped files** (974 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
+`tests/` holds **27 feature-grouped files** (985 offline tests) plus `tests/conftest.py`. The conftest makes a plain `python -m pytest` **offline and side-effect free**: unless a live flag is set, it replaces the OpenAI/Serper keys with dummies, points OpenAI at an unroutable address and disables SMTP, so tests can never make paid calls or send email.
 
 | File | Covers |
 | --- | --- |
@@ -22,7 +22,7 @@
 | `test_load_resilience.py` | Stuck model calls, cancellation, busy database and Help Center 503s |
 | `test_api_journeys.py` | End-to-end customer/admin API journeys, customer isolation |
 | `test_help_center.py`, `test_mcp_web_search.py` | Help Center answers, MCP tools, restricted web search |
-| `test_language.py` | Tamil/Tanglish detection, English retrieval and validation, number-preserving translation, translated risk flags |
+| `test_language.py` | Tamil/Tanglish detection, English retrieval and validation, number-preserving translation, translated risk flags, reviewed fixed-message translations, Help Center in Tamil |
 | `test_support_claims.py` | Staff-contact promises and unsupported app directions removed, Tamil/Tanglish lawyer and repeated-charge wording, app-help reset passage |
 | `test_logging_ui.py` | Complaint-log columns and CSV, ticket classification, UI error handling |
 | `test_scenarios.py` | Offline buildathon and realistic customer scenarios |
@@ -38,7 +38,7 @@ $env:FIXFLOW_CUSTOMER_INDEX_MODE = "approved_only"; python -m pytest -q tests/te
 
 | Batch (run 2026-11-05) | Result |
 | --- | --- |
-| Full offline suite | **974 passed, 36 skipped** (skipped = opt-in live tests, not passes) |
+| Full offline suite | **985 passed, 37 skipped** (skipped = opt-in live tests, not passes) |
 | Approved-only lane | **35 passed** |
 
 ## Live acceptance (opt-in, uses OpenAI)

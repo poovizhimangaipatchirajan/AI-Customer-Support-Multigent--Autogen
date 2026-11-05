@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 from backend.rag.customer_policy import approved_passages
 from backend.rag.semantic_rank import rank_approved
-from backend.rag.semantic_rank import MIN_SIMILARITY, meaningful_tokens, rank_approved
+from backend.rag.semantic_rank import MIN_SIMILARITY, meaningful_tokens
 from eval.evaluate import CASES, INTERNAL, evaluate, score_case
 
 

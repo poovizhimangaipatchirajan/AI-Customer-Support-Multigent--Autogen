@@ -462,10 +462,40 @@ HELP_CENTER_BUSY = ('The Help Center is busy right now. Please try again in a mo
                     'or raise a support ticket.')
 
 
+TRANSLATION_BUDGET_SECONDS = 25.0
+
+
+def _bounded(coro):
+    import asyncio
+    try:
+        return asyncio.run(asyncio.wait_for(coro, timeout=TRANSLATION_BUDGET_SECONDS))
+    except TimeoutError:
+        return None
+
+
+def answer_in_language(question):
+    """Tamil/Tanglish: screen the original words, search and answer in English,
+    then translate the answer (number-checked) with the English kept below.
+    If a translation fails, the English path and answer are used unchanged."""
+    from backend.services import language as lang
+    language = lang.detect_language(question)
+    if language == 'English':
+        return answer_question(question)
+    if screen(question):  # risk wording in the customer's own language
+        result = _ticket_required()
+    else:
+        english = _bounded(lang.to_english(question))
+        result = answer_question(english or question)
+    translated = _bounded(lang.from_english(result['answer'], language))
+    if translated:
+        result = {**result, 'answer': lang.bilingual(translated, result['answer'])}
+    return {**result, 'language': language}
+
+
 @router.post('/ask')
 def ask(body: Question, user=Depends(principal)):
     try:
-        return answer_question(body.question)
+        return answer_in_language(body.question)
     except Exception as exc:
         # Embedding provider timeout/rate limit, or an unavailable index.
         # Log the class only; never echo provider text to the customer.

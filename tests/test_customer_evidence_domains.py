@@ -13,8 +13,7 @@ import pytest
 from backend.services.grounding_guard import check_response_grounding, check_customer_visibility, customer_safe_passages
 from backend.rag.hybrid import HybridRetriever
 from backend.rag.customer_policy import is_approved_customer_passage
-from backend.rag.customer_policy import approved_topic_guidance, is_approved_customer_passage, approved_mfa_guidance
-from backend.rag.customer_policy import approved_mfa_guidance, is_approved_customer_passage
+from backend.rag.customer_policy import approved_topic_guidance, approved_mfa_guidance
 from backend.rag.customer_index import CustomerHybridRetriever
 from backend.services.help_center import answer_question, _unverified_order_tracking
 from eval.phase2d_real_sop import load_cases, select_cases, assess

@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from backend.services.risk import screen
 from backend.services.help_center import answer_question
-from backend.auth.security import hash_password, create_session
+from backend.auth.security import create_session
 import subprocess
 import sys
 import json

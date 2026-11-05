@@ -14,9 +14,7 @@ from backend.rag.customer_policy import is_approved_customer_passage
 from backend.services.citation_catalog import resolve
 from pathlib import Path
 import ast
-import os
 import pytest
-from backend.rag.customer_policy import approved_passages, is_approved_customer_passage
 from backend.rag.customer_runtime import customer_mode
 import asyncio
 import json
@@ -24,11 +22,11 @@ import time
 import uuid
 from backend.agents import team as agent_module
 from backend.db import store
-from backend.rag.customer_index import DEFAULT_INDEX, verify_index
+from backend.rag.customer_index import DEFAULT_INDEX
 from backend.worker import main as worker
 from unittest.mock import patch
-from backend.rag.customer_index import CustomerHybridRetriever, verify_index, DEFAULT_INDEX
-from backend.rag.customer_runtime import create_customer_retriever, customer_mode
+from backend.rag.customer_index import CustomerHybridRetriever
+from backend.rag.customer_runtime import create_customer_retriever
 from backend.services import citation_catalog, help_center
 from backend.services.response_diagnostics import inspect_response
 from backend.rag import customer_runtime as runtime

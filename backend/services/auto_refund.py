@@ -16,14 +16,8 @@ THRESHOLD = 500.0
 WINDOW_SECONDS = 365 * 24 * 3600
 AUTO_LIMIT_PER_WINDOW = 1
 
-ACCEPTED_MESSAGE = (
-    "We checked that order {order} belongs to your account and is marked delivered, "
-    "and we received your photographs of the damaged or defective item. Your refund "
-    "request of INR {amount:.2f} passed our automatic eligibility checks and is queued "
-    "for refund processing. This is not a payment confirmation: no money has been "
-    "refunded yet, and your photographs are kept for later checks. You will be "
-    "notified when processing is complete."
-)
+# Fixed system text; reviewed Tamil/Tanglish versions live with it.
+from backend.services.fixed_messages import AUTO_REFUND_ACCEPTED as ACCEPTED_MESSAGE  # noqa: E402
 
 
 def migrate(c):
@@ -127,6 +121,12 @@ def accept_after_evidence(c, ticket_id):
     message = try_accept(c, ticket_id)
     if not message:
         return False
+    # Reply in the language of the customer's latest message (fixed text, no model).
+    from backend.services.fixed_messages import localized
+    from backend.services.language import detect_language
+    latest = c.execute("SELECT content FROM messages WHERE ticket_id=? AND role='customer' "
+                       "ORDER BY created_at DESC, rowid DESC LIMIT 1", (ticket_id,)).fetchone()
+    message = localized(message, detect_language(latest['content'] if latest else ''))
     c.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)',
               (str(uuid.uuid4()), ticket_id, 'assistant', message, 1, time.time()))
     c.execute("UPDATE tickets SET status='ANSWERED', version=version+1 WHERE id=?", (ticket_id,))

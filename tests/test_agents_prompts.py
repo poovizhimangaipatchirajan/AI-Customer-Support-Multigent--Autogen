@@ -252,7 +252,7 @@ def test_live_shipping_agent_evidence_handoff(question):
         finally:
             await client.close()
 
-    result = asyncio.run(run_live())
+    asyncio.run(run_live())
     assert recorded, 'LogAgent did not call persist_outcome'
     assert len(recorded) == 1, 'Unexpected duplicate persistence callbacks'
     outcome = recorded[0]
@@ -433,7 +433,7 @@ async def test_missing_and_invented_citations_fail_closed():
         # A missing or fabricated ID is rejected at the handoff (or recorded
         # with no IDs); either way persistence must fail closed.
         await team.agents[2].tools[0]("Unsupported ETA: 2 days", bad, False)
-        result = await team.agents[3].tools[0](
+        await team.agents[3].tools[0](
             "summary",
             "Unsupported ETA: 2 days",
             bad,
@@ -457,7 +457,7 @@ async def test_explicit_escalation_remains_enforced():
     )
 
     await team.agents[2].tools[0]("Human review required", PASSAGE["id"], True)
-    result = await team.agents[3].tools[0](
+    await team.agents[3].tools[0](
         "risk",
         "Human review required",
         PASSAGE["id"],

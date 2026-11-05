@@ -231,3 +231,120 @@ def test_complaint_log_records_language(db):
     assert record_query_classification(row, [message], language='Tamil') is True
     log = next(r for r in _rows() if r['complaint'].startswith('என்'))
     assert log['language'] == 'Tamil' and log['category'] == 'Shipping & delivery'
+
+
+# -------------------------------------------------------- fixed messages --
+from backend.services import fixed_messages as fixed  # noqa: E402
+
+
+@pytest.mark.parametrize('english', list(fixed.TRANSLATIONS))
+@pytest.mark.parametrize('language', ['Tamil', 'Tanglish'])
+def test_fixed_translations_keep_placeholders_and_numbers(english, language):
+    import re
+    translation = fixed.TRANSLATIONS[english][language]
+    placeholders = lambda t: sorted(re.findall(r'\{(\w+)', t))  # noqa: E731
+    assert placeholders(translation) == placeholders(english)
+    sample_en = english.format(order='DEMO-1A2B-001', amount=299.0) if '{' in english else english
+    sample = translation.format(order='DEMO-1A2B-001', amount='299.00') if '{' in translation else translation
+    assert lang.numbers(sample) == lang.numbers(sample_en)
+    assert 'INR' in sample  # currency stays explicit
+    assert lang.detect_language(sample) == language
+
+
+def test_fixed_message_lookup_is_exact():
+    english = fixed.AUTO_REFUND_ACCEPTED.format(order='DEMO-1A2B-001', amount=299)
+    tamil = fixed.fixed_translation(english, 'Tamil')
+    assert 'DEMO-1A2B-001' in tamil and 'INR 299.00' in tamil
+    assert fixed.fixed_translation(english + ' Extra.', 'Tamil') is None   # not the fixed text
+    assert fixed.fixed_translation(english, 'English') is None
+    assert fixed.localized(fixed.REFUND_CLARIFICATION, 'English') == fixed.REFUND_CLARIFICATION
+    both = fixed.localized(fixed.REFUND_CLARIFICATION, 'Tanglish')
+    assert both.startswith('Dayavu') and both.endswith(fixed.REFUND_CLARIFICATION)
+
+
+def test_worker_uses_the_reviewed_text_for_a_fixed_reply(db, monkeypatch):
+    tid, jid = queued_ticket('enakku refund venum, cable udanju vandhuchu')
+    english = fixed.AUTO_REFUND_ACCEPTED.format(order='DEMO-1A2B-001', amount=299)
+    publish(tid, jid, english)
+
+    async def no_model(system, text):
+        raise AssertionError('fixed messages must not be machine translated')
+    monkeypatch.setattr(lang, '_chat', no_model)
+    assert asyncio.run(worker.localize_reply({'id': jid, 'ticket_id': tid}, 'Tanglish')) is True
+    with store.connect() as c:
+        content = c.execute('SELECT content FROM messages WHERE id=?', (jid,)).fetchone()['content']
+    assert content.startswith('Order DEMO-1A2B-001 unga account') and content.endswith(english)
+
+
+# ------------------------------------------------------------- help center --
+def test_help_center_answers_tamil_in_english_then_translates(monkeypatch):
+    from backend.services import help_center
+    seen = {}
+
+    def fake_answer(question, search=None):
+        seen['question'] = question
+        return {'status': 'answered', 'answer': 'Consumer electronics have a 7-day return window.',
+                'sources': [{'document': '02_Returns_and_Refunds_SOP.pdf'}]}
+
+    async def chat(system, text):
+        if system == lang.TO_ENGLISH_PROMPT:
+            return 'Within how many days can electronics be returned?'
+        return 'மின்னணு சாதனங்களுக்கு 7 நாள் திருப்பி அனுப்பும் காலம் உள்ளது.'
+    monkeypatch.setattr(help_center, 'answer_question', fake_answer)
+    monkeypatch.setattr(lang, '_chat', chat)
+    result = help_center.answer_in_language('எலக்ட்ரானிக்ஸ் பொருட்களை எத்தனை நாட்களுக்குள் திருப்பி அனுப்பலாம்?')
+    assert seen['question'] == 'Within how many days can electronics be returned?'
+    assert result['language'] == 'Tamil' and result['status'] == 'answered'
+    assert result['answer'].startswith('மின்னணு') and result['answer'].endswith('7-day return window.')
+    assert result['sources'] == [{'document': '02_Returns_and_Refunds_SOP.pdf'}]
+
+
+def test_help_center_screens_tamil_risk_before_any_lookup(monkeypatch):
+    from backend.services import help_center
+
+    def no_lookup(question, search=None):
+        raise AssertionError('risky questions never reach retrieval')
+    monkeypatch.setattr(help_center, 'answer_question', no_lookup)
+    monkeypatch.setattr(lang, '_chat', fake_chat(TimeoutError('no translation')))
+    result = help_center.answer_in_language('இது மோசடி, நான் வழக்கறிஞரை அணுகுவேன்')
+    assert result['status'] == 'ticket_required' and result['language'] == 'Tamil'
+    assert result['answer'] == help_center._ticket_required()['answer']  # English kept on failure
+
+
+def test_help_center_english_makes_no_translation_call(monkeypatch):
+    from backend.services import help_center
+    monkeypatch.setattr(help_center, 'answer_question', lambda q, search=None: {'status': 'answered', 'answer': 'x', 'sources': []})
+
+    async def no_call(system, text):
+        raise AssertionError('English questions are not translated')
+    monkeypatch.setattr(lang, '_chat', no_call)
+    assert help_center.answer_in_language('What is the return window?') == {'status': 'answered', 'answer': 'x', 'sources': []}
+
+
+# --------------------------------------------------------------- ticket API --
+@pytest.fixture
+def api(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from backend.auth.security import create_session, hash_password
+    monkeypatch.setattr(store, 'DB', str(tmp_path / 'api.sqlite3'))
+    from backend.main import app
+    with TestClient(app) as client:
+        uid = str(uuid.uuid4())
+        with store.connect() as c:
+            c.execute('INSERT INTO users(id,email,password_hash,role,verified) VALUES (?,?,?,?,1)',
+                      (uid, uid + '@example.test', hash_password('Language-Test-Passw0rd!'), 'customer'))
+        yield client, {'Authorization': 'Bearer ' + create_session(uid)}
+
+
+@pytest.mark.parametrize('text, language, start', [
+    ('enakku refund venum, product damage aagi vandhuchu', 'Tanglish', 'Dayavu senju'),
+    ('I need a refund, the product arrived damaged.', 'English', 'Please provide your order number'),
+])
+def test_refund_amount_question_follows_the_customer_language(api, text, language, start):
+    client, headers = api
+    created = client.post('/tickets', headers=headers, json={'subject': 'Refund', 'description': text})
+    assert created.status_code == 201, created.text
+    messages = client.get(f"/tickets/{created.json()['id']}", headers=headers).json()['messages']
+    replies = [m['content'] for m in messages if m['role'] == 'assistant']
+    assert len(replies) == 1 and replies[0].startswith(start)
+    assert replies[0].endswith(fixed.REFUND_CLARIFICATION)

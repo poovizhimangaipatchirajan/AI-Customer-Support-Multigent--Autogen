@@ -9,12 +9,10 @@ Merged without behaviour changes from:
 - test_shipping_grounding_regression.py: Focused regression tests for dispatch/delivery framing and SOP visibility.
 """
 from backend.services.grounding_guard import check_response_grounding
-from backend.services.grounding_guard import check_response_grounding, customer_safe_passages
+from backend.services.grounding_guard import customer_safe_passages
 from backend.services.response_diagnostics import inspect_response
 from pathlib import Path
 import ast
-from backend.services.grounding_guard import customer_safe_passages
-import importlib.util
 import pytest
 
 
